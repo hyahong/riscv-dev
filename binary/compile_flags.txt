@@ -1,0 +1,8 @@
+-Iinclude
+--target=riscv64-unknown-elf
+-march=rv64ima_zicsr_zifencei
+-mabi=lp64
+-mcmodel=medany
+-fno-builtin
+-Wall
+-Wextra
