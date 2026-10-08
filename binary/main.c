@@ -12,7 +12,7 @@ _trap (uint64_t cause, uint64_t pc, uint64_t value)
 	/* initialize */
 	uart_init ();
 
-	printk ("TRAP run=%d cause=%x pc=%x value=%x\n", RUN_ID, cause, pc, value);
+	printk ("[%s:TRAP] cause=%x pc=%x value=%x\n", RUN_ID, cause, pc, value);
 }
 
 void
@@ -21,7 +21,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 	/* initialize */
 	uart_init ();
 
-	printk ("BOOT FROM PCIe\n");
-	printk ("MAIN run=%d, hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
+	printk ("\n");
+	printk ("[%s:MAIN] BOOT FROM PCIe\n", RUN_ID);
+	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 }
 
