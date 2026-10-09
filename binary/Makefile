@@ -3,7 +3,7 @@ BUILD_DIR		?= $(ROOT_DIR)build
 CROSS				:= $(RISCV)/bin/riscv64-unknown-elf-
 
 TARGET			?= hnsw
-RUN_ID			?= $(TARGET)-1
+RUN_ID			?= $(TARGET)-2
 
 LIB					= lib/uart.c lib/printk.c
 INIT				= start.S main.c

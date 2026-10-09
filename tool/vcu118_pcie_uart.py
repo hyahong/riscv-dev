@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Load the pcieboot smoke payload through XDMA and observe it over UART."""
 import argparse
-from array import array
-import contextlib
+from contextlib import ExitStack, contextmanager
 import ctypes
+from functools import partial
+import math
 import mmap
 import os
 from pathlib import Path
@@ -14,13 +14,140 @@ import subprocess
 import termios
 import time
 
+
 DDR0 = 0x80000000
 DDR1 = 0x100000000
 DDR_END = 0x180000000
-PATTERN = 0x5043494500000000
+DMA_CHUNK = 8 * 1024 * 1024
+PROGRESS_STEP = 256 * 1024 * 1024
+
+MAGIC = 0x00
+VERSION = 0x04
+CONTROL = 0x08
+STATUS = 0x0C
+SCRATCH = 0x10
+STATUS_HELD = 0x0F
+STATUS_RUNNING = 0x0B
+
 _read = ctypes.CDLL(None, use_errno=True).read
 _read.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t)
 _read.restype = ctypes.c_ssize_t
+
+
+# Command-line input
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", type=Path, required=True,
+                        help="Raw program binary linked for 0x80000000")
+    parser.add_argument("--hnsw", type=Path, required=True,
+                        help="HNSW data file to load at 0x100000000")
+    parser.add_argument("--prefix", default="/dev/xdma0")
+    parser.add_argument("--bdf", required=True)
+    parser.add_argument("--uart", action="append", required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--timeout", type=float, default=20,
+                        help="UART capture duration in seconds; 0 means until Ctrl+C (default: 20)")
+    args = parser.parse_args()
+    if not math.isfinite(args.timeout) or args.timeout < 0:
+        parser.error("--timeout must be finite and nonnegative")
+    return args
+
+
+def resolve_device(prefix, bdf):
+    device = (Path("/sys/class/xdma") / (Path(prefix).name + "_user") / "device").resolve()
+    if device.name != bdf:
+        raise RuntimeError("XDMA device number does not match the selected BDF")
+    return device
+
+
+def validate_range(address, size):
+    if size <= 0 or address < DDR0 or address + size > DDR_END:
+        raise ValueError("Load range [%#x, %#x) must be nonempty and within DDR [%#x, %#x)" %
+                         (address, address + size, DDR0, DDR_END))
+
+
+def validate_loads(loads):
+    """Check all input files and ranges before touching the FPGA."""
+    ranges = []
+    for address, path in loads:
+        if not path.is_file():
+            raise ValueError("Not a regular input file: %s" % path)
+        with path.open("rb") as source:
+            size = os.fstat(source.fileno()).st_size
+        validate_range(address, size)
+        ranges.append((address, address + size, path))
+    ranges.sort(key=lambda region: region[0])
+    for previous, current in zip(ranges, ranges[1:]):
+        if current[0] < previous[1]:
+            raise ValueError("Overlapping load ranges: %s and %s" % (previous[2], current[2]))
+
+
+# Host-control registers and CPU reset (offsets in the _user BAR, not DDR addresses)
+
+def read32(mmio, offset):
+    return struct.unpack_from("<I", mmio, offset)[0]
+
+
+def write32(mmio, offset, value):
+    struct.pack_into("<I", mmio, offset, value)
+
+
+@contextmanager
+def open_control(prefix):
+    with ExitStack() as stack:
+        fd = os.open(prefix + "_user", os.O_RDWR | os.O_SYNC)
+        stack.callback(os.close, fd)
+        mmio = stack.enter_context(mmap.mmap(fd, 4096))
+        try:
+            yield mmio
+        finally:
+            print("Final CONTROL=%#x STATUS=%#x" %
+                  (read32(mmio, CONTROL), read32(mmio, STATUS)), flush=True)
+
+
+def check_reset(mmio, held=True):
+    expected_status = STATUS_HELD if held else STATUS_RUNNING
+    control, status = read32(mmio, CONTROL), read32(mmio, STATUS)
+    if control != int(held) or status & 0x0F != expected_status:
+        raise RuntimeError("Unexpected CONTROL/STATUS: %#x/%#x" % (control, status))
+
+
+def wait_for_reset(mmio, held, timeout, interval=0.001):
+    expected_status = STATUS_HELD if held else STATUS_RUNNING
+    deadline = time.monotonic() + timeout
+    while read32(mmio, STATUS) & 0x0F != expected_status and time.monotonic() < deadline:
+        time.sleep(interval)
+    check_reset(mmio, held)
+
+
+def set_cpu_reset(mmio, held):
+    write32(mmio, CONTROL, int(held))
+    if read32(mmio, CONTROL) != int(held):
+        raise RuntimeError("CPU reset control write was not accepted")
+    wait_for_reset(mmio, held, timeout=2)
+
+
+def check_host_control(mmio):
+    registers = (MAGIC, VERSION, CONTROL, STATUS, SCRATCH)
+    print("MMIO:", {hex(i): hex(read32(mmio, i)) for i in registers}, flush=True)
+    if read32(mmio, MAGIC) != 0x58444D41 or read32(mmio, VERSION) != 1:
+        raise RuntimeError("Unexpected host-control interface")
+    if read32(mmio, CONTROL) != 1:
+        raise RuntimeError("CPU must already be held in reset")
+    wait_for_reset(mmio, held=True, timeout=30, interval=0.05)
+
+
+# Blocking DMA transport
+
+@contextmanager
+def open_dma(prefix):
+    with ExitStack() as stack:
+        h2c = os.open(prefix + "_h2c_0", os.O_WRONLY)
+        stack.callback(os.close, h2c)
+        c2h = os.open(prefix + "_c2h_0", os.O_RDONLY)
+        stack.callback(os.close, c2h)
+        yield h2c, c2h
 
 
 def transfer(fd, address, buffer, writing):
@@ -28,7 +155,7 @@ def transfer(fd, address, buffer, writing):
     if writing:
         actual = os.write(fd, buffer)
     else:
-        # Legacy XDMA read_iter is asynchronous; use blocking read, not readv.
+        # Keep blocking libc read: readv/read_iter failed with the legacy XDMA driver.
         pointer = ctypes.addressof(ctypes.c_char.from_buffer(buffer))
         actual = _read(fd, pointer, len(buffer))
         if actual < 0:
@@ -42,211 +169,179 @@ def transfer(fd, address, buffer, writing):
 
 
 def compare(address, expected, actual):
+    if len(actual) != len(expected):
+        raise RuntimeError("DMA length mismatch at %#x: expected=%d actual=%d" %
+                           (address, len(expected), len(actual)))
     if actual != expected:
         i = next(i for i, pair in enumerate(zip(expected, actual)) if pair[0] != pair[1])
-        raise RuntimeError("DMA mismatch at %#x: expected=%#x actual=%#x requested=%d actual_bytes=%d" %
-                           (address + i, expected[i], actual[i], len(expected), len(actual)))
+        raise RuntimeError("DMA mismatch at %#x: expected=%#x actual=%#x" %
+                           (address + i, expected[i], actual[i]))
 
 
 def write_verify(h2c, c2h, address, data):
-    with mmap.mmap(-1, (len(data) + 4095) & ~4095) as buffer:
-        with memoryview(buffer)[:len(data)] as view:
+    # Match host-buffer and FPGA-address page offsets, including unaligned loads.
+    offset = address % mmap.PAGESIZE
+    with mmap.mmap(-1, offset + len(data)) as buffer:
+        with memoryview(buffer)[offset:offset + len(data)] as view:
             view[:] = data
             transfer(h2c, address, view, True)
             transfer(c2h, address, view, False)
             compare(address, data, bytes(view))
 
 
-def full_ddr(h2c, c2h, check_reset):
-    chunk = 8 * 1024 * 1024
-    def pattern(address):
-        return array("Q", ((address + i) ^ PATTERN for i in range(0, chunk, 8))).tobytes()
+# Binary loading
 
-    started = time.monotonic()
-    written = read = 0
-    with mmap.mmap(-1, chunk) as buffer:
-        for address in range(DDR0, DDR_END, chunk):
-            check_reset()
-            buffer[:] = pattern(address)
-            written += transfer(h2c, address, buffer, True)
-            if written % (256 * 1024 * 1024) == 0:
-                print(f"WRITE: {written / 2**30:.2f} / 4.00 GiB", flush=True)
-        print("Full 4 GiB write complete: %d bytes" % written, flush=True)
-        for address in range(DDR0, DDR_END, chunk):
-            check_reset()
-            read += transfer(c2h, address, buffer, False)
-            compare(address, pattern(address), buffer[:])
-            if read % (256 * 1024 * 1024) == 0:
-                print(f"READ: {read / 2**30:.2f} / 4.00 GiB", flush=True)
-    if written != 0x100000000 or read != 0x100000000:
-        raise RuntimeError("Unexpected full-DDR byte totals")
-    print("Full 4 GiB write/read: PASS (%.1f s, write=%d read=%d bytes; includes pattern/compare)" %
-          (time.monotonic() - started, written, read), flush=True)
+def load_binary(mmio, h2c, c2h, address, path):
+    """Copy a file verbatim to a DDR address in bounded chunks, verifying each one.
+
+    The CPU must be held in reset. This copies bytes; it does not parse ELF,
+    relocate pointers, initialize BSS, or change the CPU's boot address.
+    """
+    path = Path(path)
+    with path.open("rb") as source:
+        size = os.fstat(source.fileno()).st_size
+        validate_range(address, size)
+        print("Loading %s at %#x: %d bytes" % (path, address, size), flush=True)
+        completed = 0
+        while completed < size:
+            check_reset(mmio)
+            expected = min(DMA_CHUNK, size - completed)
+            data = source.read(expected)
+            if len(data) != expected:
+                raise RuntimeError("Input file shortened while loading: %s" % path)
+            write_verify(h2c, c2h, address + completed, data)
+            completed += len(data)
+            if completed % PROGRESS_STEP == 0 or completed == size:
+                print("  Loaded and verified %d / %d bytes" % (completed, size), flush=True)
+        if source.read(1):
+            raise RuntimeError("Input file grew while loading: %s" % path)
+    check_reset(mmio)
+
+
+# UART output capture
+
+@contextmanager
+def open_uarts(ports, output_dir):
+    with ExitStack() as stack:
+        selector = stack.enter_context(selectors.DefaultSelector())
+        for port in ports:
+            fd = os.open(port, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+            stack.callback(os.close, fd)
+            original = termios.tcgetattr(fd)
+            stack.callback(termios.tcsetattr, fd, termios.TCSANOW, original)
+            configure_uart(fd)
+            log = stack.enter_context((output_dir / (Path(port).name + ".bin")).open("wb"))
+            selector.register(fd, selectors.EVENT_READ, (port, log))
+        yield selector
+
+
+def configure_uart(fd):
+    settings = termios.tcgetattr(fd)
+    settings[:6] = [0, 0, termios.CLOCAL | termios.CREAD | termios.CS8, 0,
+                    termios.B115200, termios.B115200]
+    settings[6][termios.VMIN] = 0
+    settings[6][termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, settings)
+    termios.tcflush(fd, termios.TCIFLUSH)
+
+
+def observe_uart(selector, timeout):
+    """Capture arbitrary output for timeout seconds, or indefinitely when it is zero."""
+    deadline = time.monotonic() + timeout if timeout else None
+    while deadline is None or time.monotonic() < deadline:
+        delay = 0.5 if deadline is None else min(0.5, max(0, deadline - time.monotonic()))
+        for key, _ in selector.select(delay):
+            try:
+                data = os.read(key.fd, 4096)
+            except BlockingIOError:
+                continue
+            if not data:
+                continue
+            port, log = key.data
+            log.write(data)
+            log.flush()
+            print("%s:\n%s" % (port, data.decode("ascii", errors="replace")), end="", flush=True)
+
+
+def run_program(mmio, selector, timeout, check_kernel):
+    completed = False
+    try:
+        set_cpu_reset(mmio, held=False)
+        print("CPU reset released; observing UART at 115200 baud", flush=True)
+        try:
+            observe_uart(selector, timeout)
+        except KeyboardInterrupt:
+            print("\nUART capture interrupted", flush=True)
+        check_reset(mmio, held=False)
+        check_kernel()
+        completed = True
+        print("\nUART capture ended; CPU remains released. Program completion was not checked.",
+              flush=True)
+    finally:
+        if not completed:
+            set_cpu_reset(mmio, held=True)
+            print("CPU reset asserted after an execution or I/O error", flush=True)
+
+
+# Kernel diagnostics
+
+def read_kernel_log():
+    return subprocess.check_output(["dmesg", "--color=never"])
+
+
+def check_kernel_log(output_dir, related_bdfs, started):
+    raw = read_kernel_log()
+    (output_dir / "kernel-after.txt").write_bytes(raw)
+    lines = []
+    for line in raw.decode(errors="replace").splitlines():
+        stamp = re.match(r"^\[\s*([0-9.]+)\]", line)
+        if stamp and float(stamp.group(1)) >= started:
+            lines.append(line)
+    (output_dir / "kernel-new.txt").write_text("\n".join(lines) + "\n")
+    errors = [line for line in lines
+              if (any(bdf in line for bdf in related_bdfs) or "xdma" in line.lower())
+              and re.search(r"AER:|PCIe Bus Error|xdma.*(error|failed|timeout)", line, re.I)]
+    if errors:
+        raise RuntimeError("New PCIe/DMA kernel errors: " + "\n".join(errors))
+
+
+@contextmanager
+def monitor_kernel(output_dir, device):
+    related = {part for part in device.parts
+               if re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]", part)}
+    started = float(Path("/proc/uptime").read_text().split()[0])
+    (output_dir / "kernel-before.txt").write_bytes(read_kernel_log())
+    check = partial(check_kernel_log, output_dir, related, started)
+    try:
+        yield check
+    finally:
+        check()
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, required=True)
-    parser.add_argument("--prefix", default="/dev/xdma0")
-    parser.add_argument("--bdf", required=True)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--uart", action="append", required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--full-ddr", action="store_true")
-    parser.add_argument("--timeout", type=float, default=20)
-    args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", args.run_id):
-        raise RuntimeError("Use an alphanumeric run ID")
-    device = Path("/sys/class/xdma") / (Path(args.prefix).name + "_user") / "device"
-    if device.resolve().name != args.bdf:
-        raise RuntimeError("XDMA device number does not match the selected BDF")
-    image = args.image.read_bytes()
-    if not image or len(image) > 2 * 1024 * 1024:
-        raise RuntimeError("Expected a nonempty smoke.bin of at most 2 MiB")
-
+    args = parse_args()
+    loads = [
+        (DDR0, args.image),
+        (0xC0000000, args.hnsw)
+    ]
+    validate_loads(loads)
+    device = resolve_device(args.prefix, args.bdf)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    related = {part for part in device.resolve().parts if re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]", part)}
-    kernel_start = float(Path("/proc/uptime").read_text().split()[0])
-    (args.output_dir / "kernel-before.txt").write_bytes(subprocess.check_output(["dmesg", "--color=never"]))
 
-    def kernel_check():
-        raw = subprocess.check_output(["dmesg", "--color=never"])
-        (args.output_dir / "kernel-after.txt").write_bytes(raw)
-        new = []
-        for line in raw.decode(errors="replace").splitlines():
-            stamp = re.match(r"^\[\s*([0-9.]+)\]", line)
-            if stamp and float(stamp.group(1)) >= kernel_start:
-                new.append(line)
-        (args.output_dir / "kernel-new.txt").write_text("\n".join(new) + "\n")
-        errors = [line for line in new
-                  if (any(bdf in line for bdf in related) or "xdma" in line.lower())
-                  and re.search(r"AER:|PCIe Bus Error|xdma.*(error|failed|timeout)", line, re.I)]
-        if errors:
-            raise RuntimeError("New PCIe/DMA kernel errors: " + "\n".join(errors))
+    with monitor_kernel(args.output_dir, device) as check_kernel:
+        with open_control(args.prefix) as mmio:
+            check_host_control(mmio)
 
-    with contextlib.ExitStack() as stack:
-        stack.callback(kernel_check)
-        user = os.open(args.prefix + "_user", os.O_RDWR | os.O_SYNC)
-        stack.callback(os.close, user)
-        mmio = stack.enter_context(mmap.mmap(user, 4096))
+            with open_dma(args.prefix) as (h2c, c2h):
+                for address, path in loads:
+                    load_binary(mmio, h2c, c2h, address, path)
+                check_kernel()
 
-        def read(offset):
-            return struct.unpack_from("<I", mmio, offset)[0]
-
-        def write(offset, value):
-            struct.pack_into("<I", mmio, offset, value)
-
-        def reset_state(expected):
-            if read(8) != (1 if expected == 15 else 0) or read(12) & 15 != expected:
-                raise RuntimeError("Unexpected CONTROL/STATUS: %#x/%#x" % (read(8), read(12)))
-
-        stack.callback(lambda: print("Final CONTROL=%#x STATUS=%#x" % (read(8), read(12)), flush=True))
-        print("MMIO:", {hex(i): hex(read(i)) for i in (0, 4, 8, 12, 16)}, flush=True)
-        if read(0) != 0x58444d41 or read(4) != 1:
-            raise RuntimeError("Unexpected host-control interface")
-        if read(8) != 1:
-            raise RuntimeError("CPU must already be held in reset")
-        deadline = time.monotonic() + 30
-        while read(12) & 15 != 15 and time.monotonic() < deadline:
-            time.sleep(0.05)
-        reset_state(15)
-        scratch = read(16)
-        try:
-            write(16, 0xa5a55a5a)
-            if read(16) != 0xa5a55a5a:
-                raise RuntimeError("Scratch MMIO readback failed")
-        finally:
-            write(16, scratch)
-        if read(16) != scratch:
-            raise RuntimeError("Scratch restore failed")
-        print("Scratch MMIO: PASS", flush=True)
-        h2c = os.open(args.prefix + "_h2c_0", os.O_WRONLY)
-        c2h = os.open(args.prefix + "_c2h_0", os.O_RDONLY)
-        stack.callback(os.close, h2c)
-        stack.callback(os.close, c2h)
-        regions = {address: b"".join(struct.pack("<Q", (address + i) ^ PATTERN) for i in range(0, 4096, 8))
-                   for address in (DDR0, DDR1 - 4096, DDR1, DDR_END - 4096)}
-        with mmap.mmap(-1, 4096) as buffer:
-            for address, data in regions.items():
-                reset_state(15)
-                buffer[:] = data
-                transfer(h2c, address, buffer, True)
-            for address, data in regions.items():
-                reset_state(15)
-                transfer(c2h, address, buffer, False)
-                compare(address, data, buffer[:])
-        print("DDR0/DDR1 start/end DMA and alias: PASS", flush=True)
-        if args.full_ddr:
-            full_ddr(h2c, c2h, lambda: reset_state(15))
-        reset_state(15)
-        kernel_check()
-        # All destructive memory tests finish before loading the executable.
-        write_verify(h2c, c2h, DDR0, image)
-        write_verify(h2c, c2h, DDR1, b"".join(struct.pack("<Q", PATTERN + i) for i in range(32)))
-        reset_state(15)
-        print("Payload at %#x (%d bytes), DDR1 input: DMA readback PASS" % (DDR0, len(image)), flush=True)
-        selector = stack.enter_context(selectors.DefaultSelector())
-        received = {}
-        for port in args.uart:
-            fd = os.open(port, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-            stack.callback(os.close, fd)
-            old = termios.tcgetattr(fd)
-            stack.callback(termios.tcsetattr, fd, termios.TCSANOW, old)
-            raw = termios.tcgetattr(fd)
-            raw[:6] = [0, 0, termios.CLOCAL | termios.CREAD | termios.CS8, 0,
-                       termios.B115200, termios.B115200]
-            raw[6][termios.VMIN] = 0
-            raw[6][termios.VTIME] = 0
-            termios.tcsetattr(fd, termios.TCSANOW, raw)
-            termios.tcflush(fd, termios.TCIFLUSH)
-            log = stack.enter_context((args.output_dir / (Path(port).name + ".bin")).open("wb"))
-            selector.register(fd, selectors.EVENT_READ, (port, log))
-            received[port] = bytearray()
-        success = False
-        released = False
-        try:
-            # DMA does not access CPU peripherals or synchronize CPU caches.
-            write(8, 0)
-            released = True
-            if read(8) != 0:
-                raise RuntimeError("CPU reset release was not accepted")
-            reset_deadline = time.monotonic() + 2
-            while read(12) & 15 != 11 and time.monotonic() < reset_deadline:
-                time.sleep(0.001)
-            reset_state(11)
-            print("CPU reset released; observing UART at 115200 baud", flush=True)
-            deadline = time.monotonic() + args.timeout
-            while time.monotonic() < deadline:
-                for key, _ in selector.select(min(0.5, max(0, deadline - time.monotonic()))):
-                    data = os.read(key.fd, 4096)
-                    if not data:
-                        continue
-                    port, log = key.data
-                    log.write(data)
-                    log.flush()
-                    received[port].extend(data)
-                    print("%s: %s" % (port, data.decode("ascii", errors="replace")), end="", flush=True)
-                    if b"PCIE_BOOT_FAIL" in received[port] or b"PCIE_BOOT_TRAP" in received[port]:
-                        raise RuntimeError("CPU reported smoke failure/trap")
-                    if ("PCIE_BOOT_PASS run=" + args.run_id + "\r\n").encode() in received[port]:
-                        begin = ("PCIE_BOOT_BEGIN run=" + args.run_id + " hart=0 dtb=0x0000000000010080\r\n").encode()
-                        if begin not in received[port] or b"SUM=5050\r\n" not in received[port]:
-                            raise RuntimeError("Missing current-run boot arguments or correct integer sum")
-                        reset_state(11)
-                        kernel_check()
-                        success = True
-                        print("\nCPU execution: PASS; STATUS=%#x" % read(12), flush=True)
-                        return
-            raise RuntimeError("No CPU success message before UART timeout")
-        finally:
-            if released and not success:
-                write(8, 1)
-                reset_deadline = time.monotonic() + 2
-                while read(12) & 15 != 15 and time.monotonic() < reset_deadline:
-                    time.sleep(0.001)
-                reset_state(15)
-                print("CPU reset asserted after failed execution check", flush=True)
-
+                # Open and flush every UART before allowing the CPU to run.
+                with open_uarts(args.uart, args.output_dir) as selector:
+                    run_program(mmio, selector, args.timeout, check_kernel)
 
 if __name__ == "__main__":
     main()
+
+

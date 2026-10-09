@@ -21,7 +21,6 @@ _main (uint64_t hartid, uintptr_t dtb)
 	/* initialize */
 	uart_init ();
 
-	printk ("\n");
 	printk ("[%s:MAIN] BOOT FROM PCIe\n", RUN_ID);
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 }
