@@ -322,7 +322,7 @@ def main():
     args = parse_args()
     loads = [
         (DDR0, args.image),
-        (0xC0000000, args.hnsw)
+        (0xECCCC000, args.hnsw)
     ]
     validate_loads(loads)
     device = resolve_device(args.prefix, args.bdf)

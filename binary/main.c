@@ -23,5 +23,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 
 	printk ("[%s:MAIN] BOOT FROM PCIe\n", RUN_ID);
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
+
+	char *ptr1 = (char *) malloc (32);
+	printk ("[%s:MAIN] malloc(32) = %p\n", ptr1);
 }
 
