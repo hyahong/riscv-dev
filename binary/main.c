@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <uart.h>
 #include <printk.h>
+#include <stdlib.h>
 
 #ifndef RUN_ID
 #define RUN_ID -1
@@ -25,6 +26,13 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 
 	char *ptr1 = (char *) malloc (32);
-	printk ("[%s:MAIN] malloc(32) = %p\n", ptr1);
+	printk ("malloc(32) = %p\n", ptr1);
+	ptr1 = (char *) malloc (4096);
+	printk ("malloc(4K) = %p\n", ptr1);
+
+	free (ptr1);
+
+	ptr1 = (char *) malloc (32);
+	printk ("malloc(32) = %p\n", ptr1);
 }
 

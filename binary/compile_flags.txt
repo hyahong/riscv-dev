@@ -1,8 +1,10 @@
 -Iinclude
 --target=riscv64-unknown-elf
--march=rv64ima_zicsr_zifencei
--mabi=lp64
+-march=rv64gc
+-mabi=lp64d
 -mcmodel=medany
 -fno-builtin
 -Wall
 -Wextra
+-isystem
+/work/yahong/chipyard/.conda-env/riscv-tools/riscv64-unknown-elf/include
