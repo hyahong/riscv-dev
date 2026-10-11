@@ -260,7 +260,7 @@ def observe_uart(selector, timeout):
             port, log = key.data
             log.write(data)
             log.flush()
-            print("%s:\n%s" % (port, data.decode("ascii", errors="replace")), end="", flush=True)
+            print("\n[%s]\n%s" % (port, data.decode("ascii", errors="replace")), end="", flush=True)
 
 
 def run_program(mmio, selector, timeout, check_kernel):
