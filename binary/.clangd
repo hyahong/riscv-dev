@@ -2,7 +2,7 @@ CompileFlags:
   Add:
     - -I/work/yahong/riscv-dev/binary/include
     - --target=riscv64-unknown-elf
-    - -march=rv64gc
+    - -march=rv64gc_zicbop
     - -mabi=lp64d
     - -mcmodel=medany
     - -fno-builtin
