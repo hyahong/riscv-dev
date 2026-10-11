@@ -8,7 +8,8 @@ extern unsigned char __heap_end[];
 
 static uintptr_t heap_break;
 
-void *_sbrk_r (struct _reent *r, ptrdiff_t incr)
+void *
+_sbrk_r (struct _reent *r, ptrdiff_t incr)
 {
 	const uintptr_t start = (uintptr_t) __heap_start;
 	const uintptr_t end = (uintptr_t) __heap_end;

@@ -32,7 +32,15 @@ struct printk_info
  *   %c, %s, %d, %u, %x, %X, %p, %%, numeric l/ll
  *   optional zero fill / decimal width (capped at 32)
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int printk (const char *format, ...);
 int vprintk (const char *format, va_list args);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

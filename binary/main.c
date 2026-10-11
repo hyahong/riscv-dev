@@ -7,6 +7,8 @@
 #define RUN_ID -1
 #endif
 
+void coro_demo (void);
+
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
 {
@@ -29,10 +31,9 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("malloc(32) = %p\n", ptr1);
 	ptr1 = (char *) malloc (4096);
 	printk ("malloc(4K) = %p\n", ptr1);
-
-	free (ptr1);
-
 	ptr1 = (char *) malloc (32);
 	printk ("malloc(32) = %p\n", ptr1);
+
+	coro_demo ();
 }
 
