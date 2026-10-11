@@ -25,7 +25,7 @@ LDLIBS			= -Wl,--start-group -lc -lgcc -Wl,--end-group
 
 ASM_SRCS		= start.S
 C_SRCS			= main.c lib/uart.c lib/printk.c lib/heap.c lib/syscalls.c
-CXX_SRCS		= coro.cpp hnsw.cpp
+CXX_SRCS		= lib/new.cpp coro.cpp hnsw.cpp
 SRCS				= $(ASM_SRCS) $(C_SRCS) $(CXX_SRCS)
 OBJS				= $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(basename $(SRCS))))
 DEPS				= $(OBJS:.o=.d)

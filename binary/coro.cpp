@@ -1,7 +1,5 @@
 #include <coroutine>
-#include <cstddef>
 #include <cstdint>
-#include <malloc.h>
 #include <printk.h>
 
 namespace {
@@ -13,31 +11,6 @@ coro_fail (const char *message)
     for (;;)
         asm volatile ("wfi");
 }
-
-} // namespace
-
-void *
-operator new (std::size_t size)
-{
-    void *ptr = malloc (size ? size : 1);
-    if (!ptr)
-        coro_fail ("allocation failed");
-    return ptr;
-}
-
-void
-operator delete (void *ptr) noexcept
-{
-    free (ptr);
-}
-
-void
-operator delete (void *ptr, std::size_t) noexcept
-{
-    free (ptr);
-}
-
-namespace {
 
 std::uint64_t
 read_cycle ()
