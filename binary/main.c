@@ -8,6 +8,7 @@
 #endif
 
 void coro_demo (void);
+void hnsw_demo (void);
 
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
@@ -35,5 +36,6 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("malloc(32) = %p\n", ptr1);
 
 	coro_demo ();
+	hnsw_demo ();
 }
 
