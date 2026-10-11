@@ -23,10 +23,10 @@ LDFLAGS			= $(ARCH_FLAGS) -nostdlib -nostartfiles -static \
               -Wl,-T,linker.ld,--build-id=none,--no-relax
 LDLIBS			= -Wl,--start-group -lc -lgcc -Wl,--end-group
 
-ASM_SRCS		= start.S
-C_SRCS			= main.c lib/uart.c lib/printk.c lib/heap.c lib/syscalls.c
-CXX_SRCS		= lib/new.cpp coro.cpp hnsw.cpp
-SRCS				= $(ASM_SRCS) $(C_SRCS) $(CXX_SRCS)
+LIB_SRCS		= lib/uart.c lib/printk.c lib/syscalls.c lib/heap.c lib/new.cpp
+MAIN_SRCS		= start.S main.c coro.cpp hnsw.cpp
+
+SRCS				= $(LIB_SRCS) $(MAIN_SRCS)
 OBJS				= $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(basename $(SRCS))))
 DEPS				= $(OBJS:.o=.d)
 
