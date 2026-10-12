@@ -247,6 +247,7 @@ def configure_uart(fd):
 
 def observe_uart(selector, timeout):
     """Capture arbitrary output for timeout seconds, or indefinitely when it is zero."""
+    first = True
     deadline = time.monotonic() + timeout if timeout else None
     while deadline is None or time.monotonic() < deadline:
         delay = 0.5 if deadline is None else min(0.5, max(0, deadline - time.monotonic()))
@@ -260,14 +261,17 @@ def observe_uart(selector, timeout):
             port, log = key.data
             log.write(data)
             log.flush()
-            print("\n[%s]\n%s" % (port, data.decode("ascii", errors="replace")), end="", flush=True)
+            if first:
+                print("\n[%s]" % port, flush=True)
+                first = False
+            print("%s" % data.decode("ascii", errors="replace"), end="", flush=True)
 
 
 def run_program(mmio, selector, timeout, check_kernel):
     completed = False
     try:
         set_cpu_reset(mmio, held=False)
-        print("CPU reset released; observing UART at 115200 baud", flush=True)
+        print("CPU reset released. observing UART at 115200 baud", flush=True)
         try:
             observe_uart(selector, timeout)
         except KeyboardInterrupt:
