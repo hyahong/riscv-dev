@@ -23,7 +23,7 @@ void
 uart_init (void)
 {
 	/* 115200 baud rate */
-	UART[6] = 50000000 / 115200 - 1;
+	UART[6] = CPU_CLOCK_HZ / UART_BAUDRATE - 1;
 	/* activate UART-tx */
 	UART[2] = 1;
 }
