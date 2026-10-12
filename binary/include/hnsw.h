@@ -426,6 +426,11 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 	return Status::Ok;
 }
 
+// external
+
+extern const size_t dimension;
+extern const int16_t queries[][512];
+
 }
 
 #endif

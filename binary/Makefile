@@ -24,7 +24,7 @@ LDFLAGS			= $(ARCH_FLAGS) -nostdlib -nostartfiles -static \
 LDLIBS			= -Wl,--start-group -lc -lgcc -Wl,--end-group
 
 LIB_SRCS		= lib/uart.c lib/printk.c lib/syscalls.c lib/heap.c lib/new.cpp
-HNSW_SRCS		= hnsw/hnsw.cpp
+HNSW_SRCS		= hnsw/query.cpp hnsw/hnsw.cpp
 MAIN_SRCS		= start.S main.c coro.cpp
 
 SRCS				= $(LIB_SRCS) $(HNSW_SRCS) $(MAIN_SRCS)
