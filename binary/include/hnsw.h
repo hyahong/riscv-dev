@@ -126,33 +126,6 @@ enum class Status
 	CandidateHeapFull
 };
 
-// These reads also handle packed, unaligned fields.
-// No typed unaligned loads.
-inline uint16_t
-read_u16 (const uint8_t *p)
-{
-	return uint16_t (uint16_t (p[0]) | (uint16_t (p[1]) << 8));
-}
-
-inline uint32_t
-read_u32 (const uint8_t *p)
-{
-	return uint32_t (p[0]) | (uint32_t (p[1]) << 8) | (uint32_t (p[2]) << 16) | (uint32_t (p[3]) << 24);
-}
-
-inline uint64_t
-read_u64 (const uint8_t *p)
-{
-	return uint64_t (read_u32 (p)) | (uint64_t (read_u32 (p + 4)) << 32);
-}
-
-inline int32_t
-read_i16 (const uint8_t *p)
-{
-	const uint16_t value = read_u16 (p);
-	return value < 32768 ? int32_t (value) : int32_t (value) - 65536;
-}
-
 inline bool
 fits (uint64_t offset, uint64_t bytes, uint64_t limit)
 {
@@ -174,7 +147,9 @@ struct GraphView
 	uint64_t
 	label (uint32_t id) const 
 	{
-		return read_u64 (record (id) + h.label_offset_);
+		// labels are 4-byte aligned, but not always 8-byte aligned
+		const uint32_t *words = reinterpret_cast<const uint32_t *> (record (id) + h.label_offset_);
+		return uint64_t (words[0]) | (uint64_t (words[1]) << 32);
 	}
 
 	int64_t 
@@ -203,8 +178,8 @@ struct GraphView
 		}
 		else
 		{
-			offset = read_u64 (base + h.linkLists_offset_ + uint64_t (id) * 8);
-			if (offset < h.linkLists_data_offset_ || offset >= h.total_bytes)
+			offset = reinterpret_cast<const uint64_t *> (base + h.linkLists_offset_)[id];
+			if (offset < h.linkLists_data_offset_ || offset >= h.total_bytes || offset % 4 != 0)
 					return false;
 
 			if (uint64_t (level - 1) >= (h.total_bytes - offset) / bytes)
@@ -217,7 +192,7 @@ struct GraphView
 			return false;
 
 		list = base + offset;
-		count = read_u16 (list);
+		count = *reinterpret_cast<const uint16_t *> (list);
 
 		return count <= (level == 0 ? h.maxM0_ : h.maxM_);
 	}
@@ -228,7 +203,8 @@ open_graph (const void *memory, uint64_t available_bytes, GraphView &graph)
 {
 	graph.base = nullptr;
 
-	if (!memory || available_bytes < sizeof(DumpHeader))
+	if (!memory || available_bytes < sizeof(DumpHeader) ||
+			reinterpret_cast<uintptr_t> (memory) % alignof(DumpHeader) != 0)
 			return Status::InvalidArgument;
 
 	const uint16_t endian = 1;
@@ -236,10 +212,7 @@ open_graph (const void *memory, uint64_t available_bytes, GraphView &graph)
 			return Status::InvalidArgument;
 
 	const uint8_t *base = static_cast<const uint8_t *> (memory);
-	uint8_t *header_bytes = reinterpret_cast<uint8_t *> (&graph.h);
-
-	for (size_t i = 0; i < sizeof (DumpHeader); ++i)
-			header_bytes[i] = base[i];
+	graph.h = *static_cast<const DumpHeader *> (memory);
 	const DumpHeader &h = graph.h;
 
 	if (h.cur_element_count == 0 || h.cur_element_count > UINT32_MAX ||
@@ -247,6 +220,11 @@ open_graph (const void *memory, uint64_t available_bytes, GraphView &graph)
 			h.dim_ == 0 || h.dim_ > UINT32_MAX || h.data_size_ != h.dim_ * 2 ||
 			h.total_bytes > available_bytes || h.total_bytes < sizeof (DumpHeader))
 			return Status::InvalidGraph;
+
+	// direct loads below require aligned records and fields.
+	if (h.data_level0_memory_offset_ % 4 != 0 || h.size_data_per_element_ % 4 != 0 ||
+			h.offsetLevel0_ % 4 != 0 || h.offsetData_ % 2 != 0 || h.label_offset_ % 4 != 0)
+		return Status::InvalidGraph;
 
 	// dim <= UINT32_MAX also keeps every possible INT16 dot within INT64.
 	if (h.maxM_ > 65535 || h.maxM0_ > 65535 ||
@@ -347,7 +325,7 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 
 			for (uint32_t j = 0; j < count; ++j)
 			{
-				const uint32_t id = read_u32 (list + 4 + uint64_t (j) * 4);
+				const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
 				if (id >= n)
 					return Status::InvalidGraph;
 				const int64_t distance = graph.distance (query, id);
@@ -384,7 +362,7 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 
 		for (uint32_t j = 0; j < count; ++j)
 		{
-			const uint32_t id = read_u32 (list + 4 + uint64_t (j) * 4);
+			const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
 
 			if (id >= n)
 				return Status::InvalidGraph;

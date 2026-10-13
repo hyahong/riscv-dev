@@ -32,8 +32,8 @@ bool
 graph_prepare (GraphView &graph)
 {
 	// check
-	const uint8_t *data = reinterpret_cast<const uint8_t *> (HNSW_DUMP_ADDRESS);
-	const uint64_t bytes = read_u64 (data + offsetof (DumpHeader, total_bytes));
+	const DumpHeader *data = reinterpret_cast<const DumpHeader *> (HNSW_DUMP_ADDRESS);
+	const uint64_t bytes = data->total_bytes;
 	if (bytes < sizeof (DumpHeader) || bytes > DDR_END - HNSW_DUMP_ADDRESS)
 	{
 		printk ("Invalid HNSW dump size: %llu\n", (unsigned long long) bytes);
