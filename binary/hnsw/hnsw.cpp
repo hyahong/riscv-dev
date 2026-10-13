@@ -66,8 +66,12 @@ graph_search (GraphView &graph, Workspace &work, const int16_t *query)
 	Result result[K];
 	size_t count = 0;
 	Status status;
+	uint64_t start_cycle, end_cycle;
 
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 	status = search_knn (graph, query, K, EF, work, result, K, count);
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
+	printk ("search_knn: cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
 	if (status != Status::Ok)
 	{
 		printk ("search_knn failed: %s\n", status_name (status));
