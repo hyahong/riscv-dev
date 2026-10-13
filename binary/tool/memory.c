@@ -1,8 +1,8 @@
 #include <stdint.h>
 #include <printk.h>
 
-#define COLD_LOADS 16
-#define COLD_STRIDE 64
+#define COLD_LOADS 32
+#define COLD_STRIDE 128
 
 __attribute__((aligned(4096)))
 static uint64_t cold_data[COLD_LOADS][COLD_STRIDE / sizeof(uint64_t)] = {
