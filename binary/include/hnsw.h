@@ -129,25 +129,25 @@ enum class Status
 // These reads also handle packed, unaligned fields.
 // No typed unaligned loads.
 inline uint16_t
-read_u16 (const uint8_t* p)
+read_u16 (const uint8_t *p)
 {
 	return uint16_t (uint16_t (p[0]) | (uint16_t (p[1]) << 8));
 }
 
 inline uint32_t
-read_u32 (const uint8_t* p)
+read_u32 (const uint8_t *p)
 {
 	return uint32_t (p[0]) | (uint32_t (p[1]) << 8) | (uint32_t (p[2]) << 16) | (uint32_t (p[3]) << 24);
 }
 
 inline uint64_t
-read_u64 (const uint8_t* p)
+read_u64 (const uint8_t *p)
 {
 	return uint64_t (read_u32 (p)) | (uint64_t (read_u32 (p + 4)) << 32);
 }
 
 inline int32_t
-read_i16(const uint8_t* p)
+read_i16 (const uint8_t *p)
 {
 	const uint16_t value = read_u16 (p);
 	return value < 32768 ? int32_t (value) : int32_t (value) - 65536;
@@ -180,10 +180,10 @@ struct GraphView
 	int64_t 
 	distance (const int16_t *query, uint32_t id) const
 	{
-		const uint8_t *vector = record (id) + h.offsetData_;
+		const int16_t *vector = reinterpret_cast<const int16_t *> (record (id) + h.offsetData_);
 		int64_t dot = 0;
 		for (uint64_t j = 0; j < h.dim_; ++j)
-				dot += int64_t (query[j]) * read_i16 (vector + 2 * j);
+				dot += int64_t (query[j]) * vector[j];
 		return -dot;
 	}
 
