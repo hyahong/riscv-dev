@@ -133,8 +133,10 @@ def check_host_control(mmio):
     print("MMIO:", {hex(i): hex(read32(mmio, i)) for i in registers}, flush=True)
     if read32(mmio, MAGIC) != 0x58444D41 or read32(mmio, VERSION) != 1:
         raise RuntimeError("Unexpected host-control interface")
+    # previous run leaves the CPU released. stop it before overwriting DDR.
     if read32(mmio, CONTROL) != 1:
-        raise RuntimeError("CPU must already be held in reset")
+        print("Asserting CPU reset before DMA loading", flush=True)
+        set_cpu_reset(mmio, held=True)
     wait_for_reset(mmio, held=True, timeout=30, interval=0.05)
 
 
