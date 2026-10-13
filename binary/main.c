@@ -3,6 +3,8 @@
 #include <printk.h>
 #include <stdlib.h>
 
+#include <tool.h>
+
 #ifndef RUN_ID
 #define RUN_ID -1
 #endif
@@ -35,7 +37,11 @@ _main (uint64_t hartid, uintptr_t dtb)
 	ptr1 = (char *) malloc (32);
 	printk ("malloc(32) = %p\n", ptr1);
 
+	
 	coro_demo ();
 	hnsw_demo ();
+
+	
+	measure_latency ();
 }
 
