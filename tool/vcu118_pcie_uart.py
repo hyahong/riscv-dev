@@ -36,12 +36,24 @@ _read.restype = ctypes.c_ssize_t
 
 # Command-line input
 
+def parse_load_targets(value):
+    targets = [target.strip() for target in value.split(",")]
+    if any(target not in ("binary", "ddr") for target in targets):
+        raise argparse.ArgumentTypeError(
+            "load targets must be binary, ddr, or binary,ddr")
+    return targets
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, required=True,
-                        help="Raw program binary linked for 0x80000000")
-    parser.add_argument("--hnsw", type=Path, required=True,
-                        help="HNSW data file to load at 0x100000000")
+    parser.add_argument("--load-target", type=parse_load_targets,
+                        default="binary,ddr", metavar="TARGET[,TARGET...]",
+                        help="Comma-separated load targets: binary (--image), ddr (--hnsw) "
+                             "(default: binary,ddr)")
+    parser.add_argument("--image", type=Path,
+                        help="Raw program binary linked for 0x80000000 (required for binary)")
+    parser.add_argument("--hnsw", type=Path,
+                        help="HNSW data file to load at 0xECCCC000 (required for ddr)")
     parser.add_argument("--prefix", default="/dev/xdma0")
     parser.add_argument("--bdf", required=True)
     parser.add_argument("--uart", action="append", required=True)
@@ -49,6 +61,9 @@ def parse_args():
     parser.add_argument("--timeout", type=float, default=20,
                         help="UART capture duration in seconds; 0 means until Ctrl+C (default: 20)")
     args = parser.parse_args()
+    for target, option in (("binary", "image"), ("ddr", "hnsw")):
+        if target in args.load_target and getattr(args, option) is None:
+            parser.error("--%s is required when --load-target includes %s" % (option, target))
     if not math.isfinite(args.timeout) or args.timeout < 0:
         parser.error("--timeout must be finite and nonnegative")
     return args
@@ -326,10 +341,11 @@ def monitor_kernel(output_dir, device):
 
 def main():
     args = parse_args()
-    loads = [
-        (DDR0, args.image),
-        (0xECCCC000, args.hnsw)
-    ]
+    loads = []
+    if "binary" in args.load_target:
+        loads.append((DDR0, args.image))
+    if "ddr" in args.load_target:
+        loads.append((0xECCCC000, args.hnsw))
     validate_loads(loads)
     device = resolve_device(args.prefix, args.bdf)
     args.output_dir.mkdir(parents=True, exist_ok=True)
