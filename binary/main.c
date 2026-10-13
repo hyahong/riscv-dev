@@ -42,6 +42,6 @@ _main (uint64_t hartid, uintptr_t dtb)
 	hnsw_demo ();
 
 	
-	measure_latency ();
+	measure_latency_pf ();
 }
 
