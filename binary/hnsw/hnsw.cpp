@@ -28,7 +28,7 @@ status_name (Status status)
 	return "Unknown";
 }
 
-bool
+static bool
 graph_prepare (GraphView &graph)
 {
 	// check
@@ -60,7 +60,7 @@ graph_prepare (GraphView &graph)
 	return true;
 }
 
-bool
+static bool
 graph_search (GraphView &graph, Workspace &work, const int16_t *query)
 {
 	Result result[K];
@@ -85,7 +85,7 @@ graph_search (GraphView &graph, Workspace &work, const int16_t *query)
 	return true;
 }
 
-bool
+static bool
 workspace_prepare (GraphView &graph, Workspace &work)
 {
 	const size_t n = size_t (graph.h.cur_element_count);
@@ -112,7 +112,7 @@ workspace_prepare (GraphView &graph, Workspace &work)
 	return true;
 }
 
-void
+static void
 workspace_release (Workspace &work)
 {
 	if (work.candidates)
