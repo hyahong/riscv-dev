@@ -25,8 +25,8 @@ LDLIBS			= -Wl,--start-group -lc -lgcc -Wl,--end-group
 
 LIB_SRCS		= lib/uart.c lib/printk.c lib/syscalls.c lib/heap.c lib/new.cpp
 TOOL_SRCS		= tool/memory.c
-HNSW_SRCS		= hnsw/query.cpp hnsw/hnsw.cpp
-MAIN_SRCS		= start.S main.c coro.cpp
+HNSW_SRCS		= hnsw/query.cpp hnsw/hnsw.cpp hnsw/corohnsw.cpp
+MAIN_SRCS		= start.S main.c
 
 SRCS				= $(LIB_SRCS) $(TOOL_SRCS) $(HNSW_SRCS) $(MAIN_SRCS)
 OBJS				= $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(basename $(SRCS))))
