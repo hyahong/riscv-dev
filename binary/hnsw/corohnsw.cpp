@@ -126,6 +126,153 @@ status_name (Status status)
 	return "Unknown";
 }
 
+static Task
+co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
+{
+	Result result[K];
+	size_t count = 0;
+
+	if (!graph.base || !query)
+	{
+		printk ("InvalidArgument\n");
+		co_return;
+	}
+
+	const size_t n = size_t (graph.h.cur_element_count);
+
+	if (k > n)
+		k = n;
+	if (ef < k)
+		ef = k;
+	if (ef > n)
+		ef = n;
+
+	if (!work.candidates || !work.nearest || !work.visited ||
+			work.candidate_capacity == 0 || work.nearest_capacity < ef + 1 ||
+			work.visited_capacity < n)
+	{
+		printk ("WorkspaceTooSmall\n");
+		co_return;
+	}
+
+	next_epoch(work);
+
+	// 1. greedy descent through the sparse upper levels
+	uint32_t current = graph.h.enterpoint_node_;
+	int64_t current_distance = graph.distance (query, current);
+	for (int32_t level = graph.h.maxlevel_; level > 0; --level)
+	{
+		bool moved = true;
+		while (moved)
+		{
+			const uint8_t *list;
+			uint32_t count;
+
+			moved = false;
+
+			if (!graph.link_list (current, uint32_t (level), list, count))
+			{
+				printk ("InvalidGraph\n");
+				co_return;
+			}
+
+			for (uint32_t j = 0; j < count; ++j)
+			{
+				const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
+				if (id >= n)
+				{
+					printk ("InvalidGraph\n");
+					co_return;
+				}
+				const int64_t distance = graph.distance (query, id);
+				if (distance < current_distance)
+				{
+					current = id;
+					current_distance = distance;
+					moved = true;
+				}
+			}
+		}
+	}
+
+	// 2. best-first L0 search
+	Heap candidates = { work.candidates, 0, work.candidate_capacity, true };
+	Heap nearest = { work.nearest, 0, work.nearest_capacity, false };
+	const HeapItem entry = { current_distance, current };
+
+	candidates.push (entry);
+	nearest.push (entry);
+	work.visited[current] = work.epoch;
+
+	while (candidates.count != 0)
+	{
+		if (candidates.top ().distance > nearest.top ().distance)
+			break;
+
+		const HeapItem candidate = candidates.pop ();
+		const uint8_t *list;
+		uint32_t count;
+
+		if (!graph.link_list (candidate.id, 0, list, count))
+		{
+			printk ("InvalidGraph\n");
+			co_return;
+		}
+
+		for (uint32_t j = 0; j < count; ++j)
+		{
+			const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
+
+			if (id >= n)
+			{
+				printk ("InvalidGraph\n");
+				co_return;
+			}
+
+			if (work.visited[id] == work.epoch)
+				continue;
+
+			work.visited[id] = work.epoch;
+
+			const int64_t distance = graph.distance (query, id);
+			if (nearest.count < ef || distance < nearest.top ().distance)
+			{
+				const HeapItem item = { distance, id };
+
+				if (!candidates.push (item))
+				{
+					printk ("CandidateHeapFull\n");
+					co_return;
+				}
+
+				// ef+1 capacity was checked above
+				nearest.push(item);
+
+				if (nearest.count > ef)
+					nearest.pop ();
+			}
+		}
+	}
+
+	// 3. keep k results, then pop worst-first into the output from the end
+	while (nearest.count > k)
+		nearest.pop ();
+
+	count = nearest.count;
+
+	for (size_t i = count; i != 0; --i)
+	{
+		const HeapItem item = nearest.pop ();
+		result[i - 1] = { item.id, graph.label (item.id), item.distance };
+	}
+
+	for (size_t i = 0; i < count; ++i)
+	{
+		printk ("[%d] label=%llu\n", id, (unsigned long long) result[i].label);
+	}
+}
+
+
 static bool
 graph_prepare (GraphView &graph)
 {
@@ -212,38 +359,14 @@ workspace_release (Workspace *works)
 	}
 }
 
-static Task
-co_search (int id, GraphView &graph, Workspace &work, const int16_t *query)
-{
-	Result result[K];
-	size_t count = 0;
-	Status status;
-	uint64_t start_cycle, end_cycle;
-
-	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
-	status = search_knn (graph, query, K, EF, work, result, K, count);
-	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
-	printk ("search_knn: cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
-	if (status != Status::Ok)
-	{
-		printk ("search_knn failed: %s\n", status_name (status));
-		co_return;
-	}
-	for (size_t i = 0; i < count; ++i)
-	{
-		printk ("[%d] label=%llu\n", id, (unsigned long long) result[i].label);
-	}
-
-  co_await std::suspend_always { };
-}
-
 extern "C"
 void
 corohnsw_demo (void)
 {
 	GraphView graph;
-	Workspace works[SMCORO];
+	Workspace works[SMCORO] { };
 	Task tasks[SMCORO];
+	bool done;
 
 	uint64_t start_cycle, end_cycle;
 
@@ -268,25 +391,29 @@ corohnsw_demo (void)
 
 	for (size_t i = 0; i < SMCORO; i++)
 	{
-		tasks[i] = co_search (static_cast<int> (i), graph, works[i], hnsw::queries[i]);
-		printk ("size of ... Task=%d, tasks[i]=%d, handle=%d\n", sizeof (Task), sizeof (tasks[i]), sizeof (tasks[i].h));
+		tasks[i] = co_search (static_cast<int> (i), graph, hnsw::queries[i], K, EF, works[i]);
+		//printk ("size of ... Task=%d, tasks[i]=%d, handle=%d\n", sizeof (Task), sizeof (tasks[i]), sizeof (tasks[i].h));
 	}
-	bool done = true;
-	while (done)
+
+	do
 	{
 		done = true;
 		for (size_t i = 0; i < SMCORO; i++)
 		{
-			tasks[i].resume ();
+			if (!tasks[i].done ())
+			{
+				tasks[i].resume ();
 
-			done = done && tasks[i].done ();
+				done = false;
+			}
 		}
 	}
+	while (!done);
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
 	workspace_release (works);
 
-	printk ("co_search. cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
+	printk ("co_search. cycles / 1000 = %llu\n", (unsigned long long) (end_cycle - start_cycle) / 1000);
 }
 

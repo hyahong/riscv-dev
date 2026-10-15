@@ -7,6 +7,7 @@
 #define RUN_ID -1
 #endif
 
+void hnsw_demo (void);
 void corohnsw_demo (void);
 
 void
@@ -27,6 +28,7 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("[%s:MAIN] BOOT FROM PCIe\n", RUN_ID);
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 
+	//hnsw_demo ();
 	corohnsw_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);

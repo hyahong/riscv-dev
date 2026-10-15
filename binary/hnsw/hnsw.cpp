@@ -4,6 +4,7 @@
 
 using namespace hnsw;
 
+constexpr size_t SMCORO = 8;
 constexpr size_t K = 1;
 constexpr size_t EF = 100;
 constexpr uintptr_t HNSW_DUMP_ADDRESS = 0xECCCC000;
@@ -61,17 +62,13 @@ graph_prepare (GraphView &graph)
 }
 
 static bool
-graph_search (GraphView &graph, Workspace &work, const int16_t *query)
+search (int id, GraphView &graph, Workspace &work, const int16_t *query)
 {
 	Result result[K];
 	size_t count = 0;
 	Status status;
-	uint64_t start_cycle, end_cycle;
 
-	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 	status = search_knn (graph, query, K, EF, work, result, K, count);
-	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
-	printk ("search_knn: cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
 	if (status != Status::Ok)
 	{
 		printk ("search_knn failed: %s\n", status_name (status));
@@ -79,52 +76,64 @@ graph_search (GraphView &graph, Workspace &work, const int16_t *query)
 	}
 	for (size_t i = 0; i < count; ++i)
 	{
-		printk ("label=%llu\n", (unsigned long long) result[i].label);
+		printk ("[%d] label=%llu\n", id, (unsigned long long) result[i].label);
 	}
 
 	return true;
 }
 
 static bool
-workspace_prepare (GraphView &graph, Workspace &work)
+workspace_prepare (GraphView &graph, Workspace *works)
 {
 	const size_t n = size_t (graph.h.cur_element_count);
 	const size_t ef = EF > K ? EF : K;
 	const size_t nearest_capacity = (ef < n ? ef : n) + 1;
 
-	work = {
-		static_cast<HeapItem *> (malloc (n * sizeof (HeapItem))),
-		n,
-		static_cast<HeapItem *> (malloc (nearest_capacity * sizeof (HeapItem))),
-		nearest_capacity,
-		static_cast<uint32_t *> (malloc (n * sizeof (uint32_t))),
-		n,
-		0
-	};
-
-	if (!work.candidates || !work.nearest || !work.visited)
+	for (size_t i = 0; i < SMCORO; i++)
 	{
-		printk ("cannot allocate search workspace\n");
-		return false;
+		works[i] = {
+			static_cast<HeapItem *> (malloc (n * sizeof (HeapItem))),
+			n,
+			static_cast<HeapItem *> (malloc (nearest_capacity * sizeof (HeapItem))),
+			nearest_capacity,
+			static_cast<uint32_t *> (malloc (n * sizeof (uint32_t))),
+			n,
+			0
+		};
+
+		if (!works[i].candidates || !works[i].nearest || !works[i].visited)
+		{
+			printk ("cannot allocate search workspace\n");
+			return false;
+		}
+
+		initialize_workspace (works[i]);
 	}
 
-	initialize_workspace(work);
 	return true;
 }
 
 static void
-workspace_release (Workspace &work)
+workspace_release (Workspace *works)
 {
-	if (work.candidates)
-		free (work.candidates);
-	if (work.nearest)
-		free (work.nearest);
-	if (work.visited)
-		free (work.visited);
-
-	work.candidates = nullptr;
-	work.nearest = nullptr;
-	work.visited = nullptr;
+	for (size_t i = 0; i < SMCORO; i++)
+	{
+		if (works[i].candidates)
+		{
+			free (works[i].candidates);
+			works[i].candidates = nullptr;
+		}
+		if (works[i].nearest)
+		{
+			free (works[i].nearest);
+			works[i].nearest = nullptr;
+		}
+		if (works[i].visited)
+		{
+			free (works[i].visited);
+			works[i].visited = nullptr;
+		}
+	}
 }
 
 extern "C"
@@ -132,20 +141,38 @@ void
 hnsw_demo (void)
 {
 	GraphView graph;
-	Workspace work;
+	Workspace works[SMCORO] { };
+
+	uint64_t start_cycle, end_cycle;
 
 	if (!graph_prepare (graph))
 	{
 		return;
 	}
-	if (!workspace_prepare(graph, work))
+
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
+
+	if (!workspace_prepare (graph, works))
 	{
+		workspace_release (works);
 		return;
 	}
-	if (!graph_search(graph, work, hnsw::queries[0]))
+
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
+
+	printk ("allocate memory. cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
+
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
+
+	for (size_t i = 0; i < SMCORO; i++)
 	{
-		return;
+		search (i, graph, works[i], hnsw::queries[i]);
 	}
-	workspace_release (work);
+
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
+
+	workspace_release (works);
+
+	printk ("search. cycles / 1000 = %llu\n", (unsigned long long) (end_cycle - start_cycle) / 1000);
 }
 
