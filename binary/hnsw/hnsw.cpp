@@ -61,9 +61,10 @@ graph_prepare (GraphView &graph)
 	return true;
 }
 
-static bool
-search (int id, GraphView &graph, Workspace &work, const int16_t *query)
+static int
+search (GraphView &graph, Workspace &work, const int16_t *query)
 {
+	static_assert (K == 1);
 	Result result[K];
 	size_t count = 0;
 	Status status;
@@ -72,14 +73,10 @@ search (int id, GraphView &graph, Workspace &work, const int16_t *query)
 	if (status != Status::Ok)
 	{
 		printk ("search_knn failed: %s\n", status_name (status));
-		return false;
-	}
-	for (size_t i = 0; i < count; ++i)
-	{
-		printk ("[%d] label=%llu\n", id, (unsigned long long) result[i].label);
+		return -1;
 	}
 
-	return true;
+	return result[0].label;
 }
 
 static bool
@@ -142,6 +139,7 @@ hnsw_demo (void)
 {
 	GraphView graph;
 	Workspace works[SMCORO] { };
+	int labels[SMCORO];
 
 	uint64_t start_cycle, end_cycle;
 
@@ -166,12 +164,17 @@ hnsw_demo (void)
 
 	for (size_t i = 0; i < SMCORO; i++)
 	{
-		search (i, graph, works[i], hnsw::queries[i]);
+		labels[i] = search (graph, works[i], hnsw::queries[i]);
 	}
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
 	workspace_release (works);
+
+	for (size_t i = 0; i < SMCORO; i++)
+	{
+		printk ("[%d] label=%d\n", i, labels[i]);
+	}
 
 	printk ("search. cycles / 1000 = %llu\n", (unsigned long long) (end_cycle - start_cycle) / 1000);
 }

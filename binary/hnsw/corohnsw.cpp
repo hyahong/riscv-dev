@@ -18,45 +18,48 @@ struct Task
 
 	struct promise_type
 	{
-			static void* operator new (std::size_t n)
-			{
-				printk ("coroutine frame: %u bytes\n", n);
-				return ::operator new(n);
-			}
+		static void* operator new (std::size_t n)
+		{
+			printk ("coroutine frame: %u bytes\n", n);
+			return ::operator new(n);
+		}
 
-			static void operator delete (void* p, std::size_t) noexcept
-			{
-				::operator delete(p);
-			}
+		static void operator delete (void* p, std::size_t) noexcept
+		{
+			::operator delete(p);
+		}
 
-			Task
-			get_return_object () noexcept
-			{
-					return Task { handle_t::from_promise (*this) };
-			}
+		Task
+		get_return_object () noexcept
+		{
+				return Task { handle_t::from_promise (*this) };
+		}
 
-			std::suspend_always
-			initial_suspend () noexcept
-			{
-				return { };
-			}
+		std::suspend_always
+		initial_suspend () noexcept
+		{
+			return { };
+		}
 
-			std::suspend_always
-			final_suspend () noexcept
-			{
-				return { };
-			}
+		std::suspend_always
+		final_suspend () noexcept
+		{
+			return { };
+		}
 
-			void
-			return_void () noexcept
-			{
-			}
+		void
+		return_value (int value) noexcept
+		{
+			label = value;
+		}
 
-			void
-			unhandled_exception () noexcept
-			{
-				printk ("coro exception");
-			}
+		void
+		unhandled_exception () noexcept
+		{
+			printk ("coro exception");
+		}
+
+		int label;
 	};
 
 	handle_t h;
@@ -104,6 +107,12 @@ struct Task
 	{
 		h.resume ();
 	}
+
+	int
+	label () const noexcept
+	{
+		return h.promise ().label;
+	}
 };
 
 
@@ -127,15 +136,16 @@ status_name (Status status)
 }
 
 static Task
-co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
+co_search (const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
 {
+	static_assert (K == 1);
 	Result result[K];
 	size_t count = 0;
 
 	if (!graph.base || !query)
 	{
 		printk ("InvalidArgument\n");
-		co_return;
+		co_return -1;
 	}
 
 	const size_t n = size_t (graph.h.cur_element_count);
@@ -152,7 +162,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 			work.visited_capacity < n)
 	{
 		printk ("WorkspaceTooSmall\n");
-		co_return;
+		co_return -1;
 	}
 
 	next_epoch(work);
@@ -173,7 +183,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 			if (!graph.link_list (current, uint32_t (level), list, count))
 			{
 				printk ("InvalidGraph\n");
-				co_return;
+				co_return -1;
 			}
 
 			for (uint32_t j = 0; j < count; ++j)
@@ -182,7 +192,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 				if (id >= n)
 				{
 					printk ("InvalidGraph\n");
-					co_return;
+					co_return -1;
 				}
 				const int64_t distance = graph.distance (query, id);
 				if (distance < current_distance)
@@ -216,7 +226,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 		if (!graph.link_list (candidate.id, 0, list, count))
 		{
 			printk ("InvalidGraph\n");
-			co_return;
+			co_return -1;
 		}
 
 		for (uint32_t j = 0; j < count; ++j)
@@ -226,7 +236,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 			if (id >= n)
 			{
 				printk ("InvalidGraph\n");
-				co_return;
+				co_return -1;
 			}
 
 			if (work.visited[id] == work.epoch)
@@ -242,7 +252,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 				if (!candidates.push (item))
 				{
 					printk ("CandidateHeapFull\n");
-					co_return;
+					co_return -1;
 				}
 
 				// ef+1 capacity was checked above
@@ -266,10 +276,7 @@ co_search (int id, const GraphView &graph, const int16_t *query, size_t k, size_
 		result[i - 1] = { item.id, graph.label (item.id), item.distance };
 	}
 
-	for (size_t i = 0; i < count; ++i)
-	{
-		printk ("[%d] label=%llu\n", id, (unsigned long long) result[i].label);
-	}
+	co_return result[0].label;
 }
 
 
@@ -391,8 +398,7 @@ corohnsw_demo (void)
 
 	for (size_t i = 0; i < SMCORO; i++)
 	{
-		tasks[i] = co_search (static_cast<int> (i), graph, hnsw::queries[i], K, EF, works[i]);
-		//printk ("size of ... Task=%d, tasks[i]=%d, handle=%d\n", sizeof (Task), sizeof (tasks[i]), sizeof (tasks[i].h));
+		tasks[i] = co_search (graph, hnsw::queries[i], K, EF, works[i]);
 	}
 
 	do
@@ -413,6 +419,11 @@ corohnsw_demo (void)
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
 	workspace_release (works);
+
+	for (size_t i = 0; i < SMCORO; i++)
+	{
+		printk ("[%d] label=%d\n", i, tasks[i].label ());
+	}
 
 	printk ("co_search. cycles / 1000 = %llu\n", (unsigned long long) (end_cycle - start_cycle) / 1000);
 }
