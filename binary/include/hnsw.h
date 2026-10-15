@@ -267,7 +267,7 @@ next_epoch (Workspace &work)
 {
 	if (++work.epoch == 0)
 	{
-		initialize_workspace(work);
+		initialize_workspace (work);
 		work.epoch = 1;
 	}
 }
@@ -407,7 +407,8 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 // external
 
 extern const size_t dimension;
-extern const int16_t queries[][512];
+inline constexpr size_t query_count = 16;
+extern const int16_t queries[query_count][512];
 
 }
 

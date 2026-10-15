@@ -4,7 +4,8 @@
 
 using namespace hnsw;
 
-constexpr size_t SMCORO = 8;
+constexpr size_t QueryCount = hnsw::query_count;
+constexpr size_t WorkspaceCount = 1;
 constexpr size_t K = 1;
 constexpr size_t EF = 100;
 constexpr uintptr_t HNSW_DUMP_ADDRESS = 0xECCCC000;
@@ -86,7 +87,7 @@ workspace_prepare (GraphView &graph, Workspace *works)
 	const size_t ef = EF > K ? EF : K;
 	const size_t nearest_capacity = (ef < n ? ef : n) + 1;
 
-	for (size_t i = 0; i < SMCORO; i++)
+	for (size_t i = 0; i < WorkspaceCount; i++)
 	{
 		works[i] = {
 			static_cast<HeapItem *> (malloc (n * sizeof (HeapItem))),
@@ -113,7 +114,7 @@ workspace_prepare (GraphView &graph, Workspace *works)
 static void
 workspace_release (Workspace *works)
 {
-	for (size_t i = 0; i < SMCORO; i++)
+	for (size_t i = 0; i < WorkspaceCount; i++)
 	{
 		if (works[i].candidates)
 		{
@@ -138,8 +139,8 @@ void
 hnsw_demo (void)
 {
 	GraphView graph;
-	Workspace works[SMCORO] { };
-	int labels[SMCORO];
+	Workspace works[WorkspaceCount] { };
+	int labels[QueryCount];
 
 	uint64_t start_cycle, end_cycle;
 
@@ -162,16 +163,16 @@ hnsw_demo (void)
 
 	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 
-	for (size_t i = 0; i < SMCORO; i++)
+	for (size_t i = 0; i < QueryCount; i++)
 	{
-		labels[i] = search (graph, works[i], hnsw::queries[i]);
+		labels[i] = search (graph, works[0], hnsw::queries[i]);
 	}
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
 	workspace_release (works);
 
-	for (size_t i = 0; i < SMCORO; i++)
+	for (size_t i = 0; i < QueryCount; i++)
 	{
 		printk ("[%d] label=%d\n", i, labels[i]);
 	}
