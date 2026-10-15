@@ -28,5 +28,7 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 
 	corohnsw_demo ();
+
+	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
 

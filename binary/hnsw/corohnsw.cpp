@@ -18,6 +18,17 @@ struct Task
 
 	struct promise_type
 	{
+			static void* operator new (std::size_t n)
+			{
+				printk ("coroutine frame: %u bytes\n", n);
+				return ::operator new(n);
+			}
+
+			static void operator delete (void* p, std::size_t) noexcept
+			{
+				::operator delete(p);
+			}
+
 			Task
 			get_return_object () noexcept
 			{
@@ -234,10 +245,14 @@ corohnsw_demo (void)
 	Workspace works[SMCORO];
 	Task tasks[SMCORO];
 
+	uint64_t start_cycle, end_cycle;
+
 	if (!graph_prepare (graph))
 	{
 		return;
 	}
+
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 
 	if (!workspace_prepare(graph, works))
 	{
@@ -245,9 +260,16 @@ corohnsw_demo (void)
 		return;
 	}
 
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
+
+	printk ("allocate memory. cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
+
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
+
 	for (size_t i = 0; i < SMCORO; i++)
 	{
 		tasks[i] = co_search (static_cast<int> (i), graph, works[i], hnsw::queries[i]);
+		printk ("size of ... Task=%d, tasks[i]=%d, handle=%d\n", sizeof (Task), sizeof (tasks[i]), sizeof (tasks[i].h));
 	}
 	bool done = true;
 	while (done)
@@ -261,8 +283,10 @@ corohnsw_demo (void)
 		}
 	}
 
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
+
 	workspace_release (works);
 
-	printk ("[END]\n");
+	printk ("co_search. cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
 }
 
