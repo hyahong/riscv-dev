@@ -1,5 +1,6 @@
 ROOT_DIR		:= $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BUILD_DIR		= $(ROOT_DIR)build
+RISCV				?= $(abspath $(ROOT_DIR)/../../chipyard/.conda-env/riscv-tools)
 
 TARGET			= hnsw
 RUN_ID			= $(TARGET)-2
