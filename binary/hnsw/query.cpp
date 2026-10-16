@@ -5,7 +5,7 @@ namespace hnsw
 
 const size_t dimension = 512;
 
-const int16_t queries[][dimension] = {
+alignas(64) const int16_t queries[][dimension] = {
 	{
 		378, 576, -1973, -422, 1074, 660, -311, -1053, -72, 668, 1020, -1612, 938, -348, 894, 1801,
 		272, -388, 128, -1259, -1053, 990, 897, -40, 1091, 1519, 553, 1174, -722, 735, 1100, 524,
