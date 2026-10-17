@@ -407,7 +407,7 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 // external
 
 extern const size_t dimension;
-inline constexpr size_t query_count = 16;
+inline constexpr size_t query_count = 160;
 extern const int16_t queries[query_count][512];
 
 }
