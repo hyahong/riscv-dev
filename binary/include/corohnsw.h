@@ -4,6 +4,7 @@
 #include <coroutine>
 #include <new>
 #include <hnsw.h>
+#include <printk.h>
 
 namespace hnsw
 {
@@ -142,14 +143,12 @@ link_list_address (const GraphView &graph, uint32_t id, uint32_t level,
 } // namespace coro_detail
 
 inline SearchTask
-co_search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
-		Workspace &work, Result *output, size_t output_capacity, size_t &result_count)
+co_search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
 {
 	// 1. validate input and start a fresh visited epoch for this query
-	result_count = 0;
 	if (k == 0)
 		co_return Status::Ok;
-	if (!graph.base || !query || !output)
+	if (!graph.base || !query)
 		co_return Status::InvalidArgument;
 
 	const size_t n = size_t (graph.h.cur_element_count);
@@ -161,7 +160,7 @@ co_search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef
 		ef = n;
 	if (!work.candidates || !work.nearest || !work.visited ||
 			work.candidate_capacity == 0 || work.nearest_capacity < ef + 1 ||
-			work.visited_capacity < n || output_capacity < k)
+			work.visited_capacity < n)
 		co_return Status::WorkspaceTooSmall;
 
 	next_epoch (work);
@@ -300,15 +299,14 @@ co_search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef
 			}
 		}
 	}
+
 	// 4. keep the best k results
 	while (nearest.count > k)
 		nearest.pop ();
-	result_count = nearest.count;
-	for (size_t i = result_count; i != 0; --i)
-	{
-		const HeapItem item = nearest.pop ();
-		output[i - 1] = { item.id, graph.label (item.id), item.distance };
-	}
+
+	// 5. assert k == 1 in this demo
+	printk ("%d,label=%llu\n", id, (unsigned long long) graph.label (nearest.pop ().id));
+
 	co_return Status::Ok;
 #undef HNSW_CO_DISTANCE
 }

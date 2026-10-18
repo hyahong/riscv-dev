@@ -1,6 +1,7 @@
 #ifndef _HNSW_H_
 #define _HNSW_H_
 
+#include <printk.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -280,15 +281,12 @@ struct Result
 };
 
 inline Status
-search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
-		Workspace &work, Result *output, size_t output_capacity, size_t &result_count)
+search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
 {
-	result_count = 0;
-
 	if (k == 0)
 		return Status::Ok;
 
-	if (!graph.base || !query || !output)
+	if (!graph.base || !query)
 		return Status::InvalidArgument;
 
 	const size_t n = size_t (graph.h.cur_element_count);
@@ -302,7 +300,7 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 
 	if (!work.candidates || !work.nearest || !work.visited ||
 			work.candidate_capacity == 0 || work.nearest_capacity < ef + 1 ||
-			work.visited_capacity < n || output_capacity < k)
+			work.visited_capacity < n)
 			return Status::WorkspaceTooSmall;
 
 	next_epoch(work);
@@ -393,13 +391,8 @@ search_knn (const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 	while (nearest.count > k)
 		nearest.pop ();
 
-	result_count = nearest.count;
-
-	for (size_t i = result_count; i != 0; --i)
-	{
-		const HeapItem item = nearest.pop ();
-		output[i - 1] = { item.id, graph.label (item.id), item.distance };
-	}
+	// 4. assert k == 1 in this demo
+	printk ("%d,label=%llu\n", id, (unsigned long long) graph.label (nearest.pop ().id));
 
 	return Status::Ok;
 }

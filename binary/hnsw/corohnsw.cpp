@@ -53,16 +53,15 @@ release (Workspace *works)
 extern "C" void
 corohnsw_demo ()
 {
+	static_assert (K == 1);
+
 	GraphView graph;
 	const auto *header = reinterpret_cast<const DumpHeader *> (DumpAddress);
 	const uint64_t bytes = header->total_bytes;
 
 	Workspace works[Active] { };
-	Result results[query_count] { };
-	size_t counts[query_count] { };
-	Status statuses[query_count] { };
 
-	uint64_t start, end;
+	uint64_t start_cycle, end_cycle;
 
 	if (bytes > DdrEnd - DumpAddress || open_graph (header, bytes, graph) != Status::Ok || graph.h.dim_ != dimension)
 	{
@@ -77,9 +76,8 @@ corohnsw_demo ()
 		return;
 	}
 
-	asm volatile ("csrr %0, mcycle" : "=r" (start) :: "memory");
+	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) :: "memory");
 	{
-		// 2. Resume slots round-robin. Refill a completed slot with the next query.
 		SearchTask tasks[Active];
 		size_t indices[Active];
 		size_t next = 0, completed = 0;
@@ -87,8 +85,7 @@ corohnsw_demo ()
 		{
 			indices[slot] = next++;
 			const size_t q = indices[slot];
-			tasks[slot] = co_search_knn (graph, queries[q], K, Ef, works[slot],
-					results + q, K, counts[q]);
+			tasks[slot] = co_search_knn (q, graph, queries[q], K, Ef, works[slot]);
 		}
 		while (completed < query_count)
 		{
@@ -99,14 +96,12 @@ corohnsw_demo ()
 				tasks[slot].resume ();
 				if (!tasks[slot].done ())
 					continue;
-				statuses[indices[slot]] = tasks[slot].status ();
 				++completed;
 				if (next < query_count)
 				{
 					indices[slot] = next++;
 					const size_t q = indices[slot];
-					tasks[slot] = co_search_knn (graph, queries[q], K, Ef, works[slot],
-							results + q, K, counts[q]);
+					tasks[slot] = co_search_knn (q, graph, queries[q], K, Ef, works[slot]);
 				}
 				else
 				{
@@ -115,16 +110,20 @@ corohnsw_demo ()
 				}
 			}
 		}
-	} // Destroy frames before releasing their workspaces; destruction is timed.
-	asm volatile ("csrr %0, mcycle" : "=r" (end) :: "memory");
-
-	// 3. Print results outside the timed region, then release the workspaces.
-	for (size_t q = 0; q < query_count; ++q)
-	{
-		printk ("[%lu] label=%llu, status=%u\n", q, (unsigned long long) results[q].label, unsigned (statuses[q]));
 	}
+	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) :: "memory");
 
 	release (works);
 
-	printk ("co_search. cycle / 1000 = %llu\n", (unsigned long long) (end - start) / 1000);
+	{
+		constexpr unsigned long long clock = 40 * 1000 * 1000;
+		unsigned long long elapsed_cycle;
+		unsigned long long integer, fractional;
+
+		elapsed_cycle = (unsigned long long) (end_cycle - start_cycle) / (clock / 1000);
+		// elapsed_cycle is milliseconds
+		integer = elapsed_cycle / 1000;
+		fractional = elapsed_cycle % 1000;
+		printk ("co_search. elapsed=%llu.%llu\n", integer, fractional);
+	}
 }

@@ -62,22 +62,19 @@ graph_prepare (GraphView &graph)
 	return true;
 }
 
-static int
-search (GraphView &graph, Workspace &work, const int16_t *query)
+static bool
+search (const int id, GraphView &graph, Workspace &work, const int16_t *query)
 {
 	static_assert (K == 1);
-	Result result[K];
-	size_t count = 0;
 	Status status;
 
-	status = search_knn (graph, query, K, EF, work, result, K, count);
+	status = search_knn (id, graph, query, K, EF, work);
 	if (status != Status::Ok)
 	{
 		printk ("search_knn failed: %s\n", status_name (status));
-		return -1;
+		return false;
 	}
-
-	return result[0].label;
+	return true;
 }
 
 static bool
@@ -138,9 +135,10 @@ extern "C"
 void
 hnsw_demo (void)
 {
+	static_assert (WorkspaceCount == 1);
+
 	GraphView graph;
 	Workspace works[WorkspaceCount] { };
-	int labels[QueryCount];
 
 	uint64_t start_cycle, end_cycle;
 
@@ -165,18 +163,23 @@ hnsw_demo (void)
 
 	for (size_t i = 0; i < QueryCount; i++)
 	{
-		labels[i] = search (graph, works[0], hnsw::queries[i]);
+		(void) search (i, graph, *works, hnsw::queries[i]);
 	}
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
 	workspace_release (works);
 
-	for (size_t i = 0; i < QueryCount; i++)
 	{
-		printk ("[%d] label=%d\n", i, labels[i]);
-	}
+		constexpr unsigned long long clock = 40 * 1000 * 1000;
+		unsigned long long elapsed_cycle;
+		unsigned long long integer, fractional;
 
-	printk ("search. cycles / 1000 = %llu\n", (unsigned long long) (end_cycle - start_cycle) / 1000);
+		elapsed_cycle = (unsigned long long) (end_cycle - start_cycle) / (clock / 1000);
+		// elapsed_cycle is milliseconds
+		integer = elapsed_cycle / 1000;
+		fractional = elapsed_cycle % 1000;
+		printk ("search. elapsed=%llu.%llu\n", integer, fractional);
+	}
 }
 
