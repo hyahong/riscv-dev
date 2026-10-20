@@ -124,6 +124,6 @@ corohnsw_demo ()
 		// elapsed_cycle is milliseconds
 		integer = elapsed_cycle / 1000;
 		fractional = elapsed_cycle % 1000;
-		printk ("co_search. elapsed=%llu.%llu\n", integer, fractional);
+		printk ("\n\nco_search. elapsed=%llu.%llu\n", integer, fractional);
 	}
 }

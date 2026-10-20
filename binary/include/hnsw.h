@@ -392,7 +392,7 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 		nearest.pop ();
 
 	// 4. assert k == 1 in this demo
-	printk ("%d,label=%llu\n", id, (unsigned long long) graph.label (nearest.pop ().id));
+	printk ("%d,%llu", id, (unsigned long long) graph.label (nearest.pop ().id));
 
 	return Status::Ok;
 }

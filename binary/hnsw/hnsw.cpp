@@ -179,7 +179,7 @@ hnsw_demo (void)
 		// elapsed_cycle is milliseconds
 		integer = elapsed_cycle / 1000;
 		fractional = elapsed_cycle % 1000;
-		printk ("search. elapsed=%llu.%llu\n", integer, fractional);
+		printk ("\n\nsearch. elapsed=%llu.%llu\n", integer, fractional);
 	}
 }
 
