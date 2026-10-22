@@ -143,7 +143,8 @@ link_list_address (const GraphView &graph, uint32_t id, uint32_t level,
 } // namespace coro_detail
 
 inline SearchTask
-co_search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
+co_search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef,
+		Workspace &work, Result *output = nullptr)
 {
 	// 1. validate input and start a fresh visited epoch for this query
 	if (k == 0)
@@ -305,7 +306,12 @@ co_search_knn (const int id, const GraphView &graph, const int16_t *query, size_
 		nearest.pop ();
 
 	// 5. assert k == 1 in this demo
-	printk ("%d,%llu", id, (unsigned long long) graph.label (nearest.pop ().id));
+	const HeapItem item = nearest.pop ();
+	const uint64_t label = graph.label (item.id);
+	if (output)
+		*output = { item.id, label, item.distance };
+	else
+		printk ("%d,%llu", id, (unsigned long long) label);
 
 	co_return Status::Ok;
 #undef HNSW_CO_DISTANCE

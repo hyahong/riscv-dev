@@ -264,8 +264,7 @@ def configure_uart(fd):
 
 def observe_uart(selector, timeout):
     """Capture arbitrary output for timeout seconds, or indefinitely when it is zero."""
-    OBSERVE_START = time.monotonic()
-
+    timestamp = False
     first = True
     deadline = time.monotonic() + timeout if timeout else None
     while deadline is None or time.monotonic() < deadline:
@@ -277,16 +276,21 @@ def observe_uart(selector, timeout):
                 continue
             if not data:
                 continue
+
             port, log = key.data
             log.write(data)
             log.flush()
             if first:
                 print("\n[%s]" % port, flush=True)
                 first = False
-            elapsed_ms = int((time.monotonic() - OBSERVE_START) * 1000)
-            print("[%d ms] %s\n" % (elapsed_ms, data.decode("ascii", errors="replace")),
-                  end="", flush=True)
-
+            if timestamp:
+                elapsed_ms = int((time.monotonic() - OBSERVE_START) * 1000)
+                print("[%d ms] %s\n" % (elapsed_ms, data.decode("ascii", errors="replace")), end="", flush=True)
+            else:
+                print("%s\n" % data.decode("ascii", errors="replace"), end="", flush=True)
+                if data.decode("ascii", errors="replace") == "[HNSW] START":
+                    OBSERVE_START = time.monotonic()
+                    timestamp = True
 
 def run_program(mmio, selector, timeout, check_kernel):
     completed = False
