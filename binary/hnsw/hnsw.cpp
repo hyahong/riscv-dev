@@ -1,5 +1,5 @@
 #include <hnsw.h>
-#include <malloc.h>
+#include <base.h>
 #include <printk.h>
 
 using namespace hnsw;
@@ -8,59 +8,9 @@ constexpr size_t QueryCount = hnsw::query_count;
 constexpr size_t WorkspaceCount = 1;
 constexpr size_t K = 1;
 constexpr size_t EF = 100;
-constexpr uintptr_t HNSW_DUMP_ADDRESS = 0xECCCC000;
-constexpr uintptr_t DDR_END = 0x180000000;
 
-static const char *
-status_name (Status status)
-{
-	switch (status)
-	{
-		case Status::Ok:
-			return "Ok";
-		case Status::InvalidArgument:
-			return "InvalidArgument";
-		case Status::InvalidGraph:
-			return "InvalidGraph";
-		case Status::WorkspaceTooSmall:
-			return "WorkspaceTooSmall";
-		case Status::CandidateHeapFull:
-			return "CandidateHeapFull";
-	}
-	return "Unknown";
-}
-
-static bool
-graph_prepare (GraphView &graph)
-{
-	// check
-	const DumpHeader *data = reinterpret_cast<const DumpHeader *> (HNSW_DUMP_ADDRESS);
-	const uint64_t bytes = data->total_bytes;
-	if (bytes < sizeof (DumpHeader) || bytes > DDR_END - HNSW_DUMP_ADDRESS)
-	{
-		printk ("Invalid HNSW dump size: %llu\n", (unsigned long long) bytes);
-		return false;
-	}
-
-	printk ("HNSW dump: %p, %llu bytes\n", (const void *) data, (unsigned long long) bytes);
-
-	// load dumped HNSW graph
-	Status status = open_graph (data, bytes, graph);
-	if (status != Status::Ok)
-	{
-		printk ("open_graph: %s\n", status_name (status));
-		return false;
-	}
-	if (graph.h.dim_ != hnsw::dimension)
-	{
-		printk ("query dimension mismatch: graph=%llu, query=%lu\n", (unsigned long long) graph.h.dim_, (unsigned long) hnsw::dimension);
-		return false;
-	}
-
-	printk ("nodes: %lu, dim: %llu, entry ID: %u, max level: %d\n", (unsigned long) graph.h.cur_element_count, (unsigned long long) graph.h.dim_, graph.h.enterpoint_node_, graph.h.maxlevel_);
-
-	return true;
-}
+static GraphView graph;
+static Workspace works[WorkspaceCount] { };
 
 static bool
 search (const int id, GraphView &graph, Workspace &work, const int16_t *query)
@@ -77,87 +27,12 @@ search (const int id, GraphView &graph, Workspace &work, const int16_t *query)
 	return true;
 }
 
-static bool
-workspace_prepare (GraphView &graph, Workspace *works)
-{
-	const size_t n = size_t (graph.h.cur_element_count);
-	const size_t ef = EF > K ? EF : K;
-	const size_t nearest_capacity = (ef < n ? ef : n) + 1;
-
-	for (size_t i = 0; i < WorkspaceCount; i++)
-	{
-		works[i] = {
-			static_cast<HeapItem *> (malloc (n * sizeof (HeapItem))),
-			n,
-			static_cast<HeapItem *> (malloc (nearest_capacity * sizeof (HeapItem))),
-			nearest_capacity,
-			static_cast<uint32_t *> (malloc (n * sizeof (uint32_t))),
-			n,
-			0
-		};
-
-		if (!works[i].candidates || !works[i].nearest || !works[i].visited)
-		{
-			printk ("cannot allocate search workspace\n");
-			return false;
-		}
-
-		initialize_workspace (works[i]);
-	}
-
-	return true;
-}
-
 static void
-workspace_release (Workspace *works)
+hnsw_run (void)
 {
-	for (size_t i = 0; i < WorkspaceCount; i++)
-	{
-		if (works[i].candidates)
-		{
-			free (works[i].candidates);
-			works[i].candidates = nullptr;
-		}
-		if (works[i].nearest)
-		{
-			free (works[i].nearest);
-			works[i].nearest = nullptr;
-		}
-		if (works[i].visited)
-		{
-			free (works[i].visited);
-			works[i].visited = nullptr;
-		}
-	}
-}
-
-extern "C"
-void
-hnsw_demo (void)
-{
-	static_assert (WorkspaceCount == 1);
-
-	GraphView graph;
-	Workspace works[WorkspaceCount] { };
-
 	uint64_t start_cycle, end_cycle;
 
-	if (!graph_prepare (graph))
-	{
-		return;
-	}
-
-	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
-
-	if (!workspace_prepare (graph, works))
-	{
-		workspace_release (works);
-		return;
-	}
-
-	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
-
-	printk ("allocate memory. cycles=%llu\n", (unsigned long long) (end_cycle - start_cycle));
+	printk ("[HNSW] START");
 
 	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 
@@ -168,18 +43,26 @@ hnsw_demo (void)
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
-	workspace_release (works);
+	print_elapsed (start_cycle, end_cycle);
+}
 
+extern "C"
+void
+hnsw_demo (void)
+{
+	if (!graph_prepare (graph))
 	{
-		constexpr unsigned long long clock = 40 * 1000 * 1000;
-		unsigned long long elapsed_cycle;
-		unsigned long long integer, fractional;
-
-		elapsed_cycle = (unsigned long long) (end_cycle - start_cycle) / (clock / 1000);
-		// elapsed_cycle is milliseconds
-		integer = elapsed_cycle / 1000;
-		fractional = elapsed_cycle % 1000;
-		printk ("\n\nsearch. elapsed=%llu.%llu\n", integer, fractional);
+		return;
 	}
+
+	if (!workspace_prepare (graph, works, WorkspaceCount, K, EF))
+	{
+		workspace_release (works, WorkspaceCount);
+		return;
+	}
+
+	hnsw_run ();
+
+	workspace_release (works, WorkspaceCount);
 }
 

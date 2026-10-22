@@ -127,6 +127,25 @@ enum class Status
 	CandidateHeapFull
 };
 
+inline const char *
+status_name (Status status)
+{
+	switch (status)
+	{
+		case Status::Ok:
+			return "Ok";
+		case Status::InvalidArgument:
+			return "InvalidArgument";
+		case Status::InvalidGraph:
+			return "InvalidGraph";
+		case Status::WorkspaceTooSmall:
+			return "WorkspaceTooSmall";
+		case Status::CandidateHeapFull:
+			return "CandidateHeapFull";
+	}
+	return "Unknown";
+}
+
 inline bool
 fits (uint64_t offset, uint64_t bytes, uint64_t limit)
 {
@@ -281,7 +300,8 @@ struct Result
 };
 
 inline Status
-search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef, Workspace &work)
+search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef,
+		Workspace &work, Result *output = nullptr)
 {
 	if (k == 0)
 		return Status::Ok;
@@ -392,7 +412,12 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 		nearest.pop ();
 
 	// 4. assert k == 1 in this demo
-	printk ("%d,%llu", id, (unsigned long long) graph.label (nearest.pop ().id));
+	const HeapItem item = nearest.pop ();
+	const uint64_t label = graph.label (item.id);
+	if (output)
+		*output = { item.id, label, item.distance };
+	else
+		printk ("%d,%llu", id, (unsigned long long) label);
 
 	return Status::Ok;
 }
