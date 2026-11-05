@@ -15,7 +15,8 @@ class SDM
 		{
 			public:
 				Core () :
-					m_frame_ptr (nullptr)
+					m_frame_ptr (nullptr),
+					m_coroutine_count (0)
 				{
 				}
 
@@ -26,32 +27,97 @@ class SDM
 				void clear ()
 				{
 					m_frame_ptr = nullptr;
+					m_coroutine_count = 0;
 				}
 
 				void setFrame (void *ptr)
 				{
 					m_frame_ptr = ptr;
+					m_coroutine_count = 0;
+
+					ASM::setFrame (reinterpret_cast<uintptr_t> (ptr));
 				}
 
 				bool addCoroutine (void *sp, Coroutine func, void *arg)
 				{
-					if (!m_frame_ptr)
+					uintptr_t frame_base, stack_top;
+					uint64_t *frame;
+					uint32_t i;
+
+					if (!m_frame_ptr || !sp || !func ||
+							m_coroutine_count >= MAX_COROUTINE_COUNT)
 					{
 						return false;
 					}
 
+					// aligned address
+					frame_base = reinterpret_cast<uintptr_t> (m_frame_ptr);
+					stack_top = reinterpret_cast<uintptr_t> (sp);
+					if ((frame_base & 7) ||
+							(stack_top & 15) ||
+							(reinterpret_cast<uintptr_t> (func) & 1))
+					{
+						return false;
+					}
 
+					// clear
+					frame = static_cast<uint64_t *> (m_frame_ptr) + m_coroutine_count * 32;
+					for (i = 0; i < 32; ++i)
+					{
+						frame[i] = 0;
+					}
+					// ra
+					frame[1] = reinterpret_cast<uintptr_t> (&coroutineEnd);
+					// sp
+					frame[2] = stack_top;
+					// gp
+					frame[3] = ASM::getGp ();
+					// tp
+					frame[4] = ASM::getTp ();
+					// a0 (arg0)
+					frame[10] = m_coroutine_count;
+					// a1 (arg1)
+					frame[11] = reinterpret_cast<uintptr_t> (arg);
+
+					ASM::setFunc (m_coroutine_count, func);
+
+					++m_coroutine_count;
 					return true;
 				}
 
 			private:
+				[[noreturn]]
+				static void coroutineEnd ()
+				{
+					ASM::end ();
+				}
+
 				void *m_frame_ptr;
+				uint32_t m_coroutine_count;
 		};
 
 	private:
 		class ASM
 		{
 			public:
+				__attribute__((always_inline))
+				static uintptr_t getGp ()
+				{
+					uintptr_t gp;
+
+					asm volatile ("mv %0, gp" : "=r"(gp));
+					return gp;
+				}
+
+				__attribute__((always_inline))
+				static uintptr_t getTp ()
+				{
+					uintptr_t tp;
+
+					asm volatile ("mv %0, tp" : "=r"(tp));
+					return tp;
+				}
+
 				__attribute__((always_inline))
 				static void setFunc (uint32_t cid, Coroutine func)
 				{
@@ -129,17 +195,31 @@ class SDM
 		SDM::Core m_cores[MAX_CORE_COUNT];
 };
 
-void test ()
+inline void test ()
 {
+	constexpr uint32_t coroutine_count = 16;
+	alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][32];
+	alignas(16) static uint8_t stacks[coroutine_count][4096];
+
 	SDM &sdm = SDM::get ();
 	SDM::Core *core = sdm.getCore (0);
 
-	core->clear ();
-	core->addCoroutine (test, nullptr, 0);
-	core->addCoroutine (test, nullptr, 0);
-	core->addCoroutine (test, nullptr, 0);
+	const auto worker = [] (unsigned int, void *) -> int {
+		return 0;
+	};
 
-	sdm.run ();
+	core->clear ();
+	core->setFrame (frames);
+
+	for (uint32_t cid = 0; cid < coroutine_count; ++cid)
+	{
+		if (!core->addCoroutine (stacks[cid] + sizeof (stacks[cid]), worker, nullptr))
+		{
+			return;
+		}
+	}
+
+	sdm.run (coroutine_count);
 }
 
 #endif
