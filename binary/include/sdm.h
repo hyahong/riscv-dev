@@ -195,6 +195,7 @@ class SDM
 		SDM::Core m_cores[MAX_CORE_COUNT];
 };
 
+/*
 inline void test ()
 {
 	constexpr uint32_t coroutine_count = 16;
@@ -221,5 +222,6 @@ inline void test ()
 
 	sdm.run (coroutine_count);
 }
+*/
 
 #endif
