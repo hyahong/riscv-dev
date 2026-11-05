@@ -9,7 +9,6 @@
 
 void hnsw_demo (void);
 void corohnsw_demo (void);
-void hchnsw_demo (unsigned active);
 
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
@@ -31,7 +30,6 @@ _main (uint64_t hartid, uintptr_t dtb)
 
 	//hnsw_demo ();
 	//corohnsw_demo ();
-	hchnsw_demo (2);
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
