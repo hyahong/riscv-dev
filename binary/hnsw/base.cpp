@@ -94,14 +94,14 @@ void
 print_elapsed (uint64_t start_cycle, uint64_t end_cycle)
 {
 	constexpr unsigned long long clock = 40 * 1000 * 1000;
-	unsigned long long elapsed_cycle;
+	unsigned long long elapsed_cycle, elapsed_ms;
 	unsigned long long integer, fractional;
 
-	elapsed_cycle = (unsigned long long) (end_cycle - start_cycle) / (clock / 1000);
-	// elapsed_cycle is milliseconds
-	integer = elapsed_cycle / 1000;
-	fractional = elapsed_cycle % 1000;
-	printk ("\n\nsearch. elapsed=%llu.%llu\n", integer, fractional);
+	elapsed_cycle = (unsigned long long) (end_cycle - start_cycle);
+	elapsed_ms = elapsed_cycle / (clock / 1000);
+	integer = elapsed_ms / 1000;
+	fractional = elapsed_ms % 1000;
+	printk ("\nsearch. cycles=%llu elapsed=%llu.%03llu\n", elapsed_cycle, integer, fractional);
 }
 
 } // namespace hnsw
