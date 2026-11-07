@@ -195,33 +195,4 @@ class SDM
 		SDM::Core m_cores[MAX_CORE_COUNT];
 };
 
-/*
-inline void test ()
-{
-	constexpr uint32_t coroutine_count = 16;
-	alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][32];
-	alignas(16) static uint8_t stacks[coroutine_count][4096];
-
-	SDM &sdm = SDM::get ();
-	SDM::Core *core = sdm.getCore (0);
-
-	const auto worker = [] (unsigned int, void *) -> int {
-		return 0;
-	};
-
-	core->clear ();
-	core->setFrame (frames);
-
-	for (uint32_t cid = 0; cid < coroutine_count; ++cid)
-	{
-		if (!core->addCoroutine (stacks[cid] + sizeof (stacks[cid]), worker, nullptr))
-		{
-			return;
-		}
-	}
-
-	sdm.run (coroutine_count);
-}
-*/
-
 #endif
