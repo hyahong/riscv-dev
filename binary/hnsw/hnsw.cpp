@@ -11,38 +11,36 @@ constexpr size_t EF = 100;
 
 static GraphView graph;
 static Workspace works[WorkspaceCount] { };
-
-static bool
-search (const int id, GraphView &graph, Workspace &work, const int16_t *query)
-{
-	static_assert (K == 1);
-	Status status;
-
-	status = search_knn (id, graph, query, K, EF, work);
-	if (status != Status::Ok)
-	{
-		printk ("search_knn failed: %s\n", status_name (status));
-		return false;
-	}
-	return true;
-}
+static Result results[QueryCount] { };
+static Status statuses[QueryCount];
 
 static void
 hnsw_run (void)
 {
 	uint64_t start_cycle, end_cycle;
 
-	printk ("[HNSW] START");
+	printk ("[HNSW] START queries=%lu\n", (unsigned long) QueryCount);
 
 	asm volatile ("csrr %0, mcycle" : "=r" (start_cycle) : : "memory");
 
 	for (size_t i = 0; i < QueryCount; i++)
 	{
-		(void) search (i, graph, *works, hnsw::queries[i]);
+		statuses[i] = search_knn (static_cast<int> (i), graph, hnsw::queries[i], K, EF, *works, &results[i]);
 	}
 
 	asm volatile ("csrr %0, mcycle" : "=r" (end_cycle) : : "memory");
 
+	for (size_t i = 0; i < QueryCount; ++i)
+	{
+		if (statuses[i] == Status::Ok)
+		{
+			printk ("%lu,%llu\n", (unsigned long) i, (unsigned long long) results[i].label);
+		}
+		else
+		{
+			printk ("search_knn query=%lu failed: %s\n", (unsigned long) i, status_name (statuses[i]));
+		}
+	}
 	print_elapsed (start_cycle, end_cycle);
 }
 
