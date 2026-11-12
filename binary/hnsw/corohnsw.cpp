@@ -38,7 +38,7 @@ worker (unsigned int cid, void *)
 		// 1. greedy descent through the sparse upper levels
 		uint32_t current = graph.h.enterpoint_node_;
 
-		prefetch_vector (current);
+		prefetch_vector (graph, current);
 		co_await Coro::yield ();
 		int64_t current_distance = graph.distance (query, current);
 
@@ -67,7 +67,7 @@ worker (unsigned int cid, void *)
 						co_return;
 					}
 
-					prefetch_vector (id);
+					prefetch_vector (graph, id);
 					co_await Coro::yield ();
 					const int64_t distance = graph.distance (query, id);
 
@@ -122,7 +122,7 @@ worker (unsigned int cid, void *)
 				}
 				work.visited[id] = work.epoch;
 
-				prefetch_vector (id);
+				prefetch_vector (graph, id);
 				co_await Coro::yield ();
 				const int64_t distance = graph.distance (query, id);
 
