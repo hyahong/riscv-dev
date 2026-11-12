@@ -22,14 +22,15 @@ CXXFLAGS		= $(ARCH_FLAGS) $(COMMON_FLAGS) $(CXX_FLAGS)
 ASFLAGS			= $(ARCH_FLAGS) $(COMMON_FLAGS)
 LDFLAGS			= $(ARCH_FLAGS) -nostdlib -nostartfiles -static \
               -Wl,-T,linker.ld,--build-id=none,--no-relax
-LDLIBS			= -Wl,--start-group -lc -lgcc -Wl,--end-group
+LDLIBS			= -Wl,--start-group -lstdc++ -lc -lgcc -Wl,--end-group
 
 LIB_SRCS		= lib/uart.c lib/printk.c lib/syscalls.c lib/heap.c lib/new.cpp
 TOOL_SRCS		= tool/memory.c
 HNSW_SRCS		= hnsw/base.cpp hnsw/query.cpp hnsw/hnsw.cpp hnsw/corohnsw.cpp hnsw/sdmhnsw.cpp
 MAIN_SRCS		= start.S main.c
+STL_SRCS		= stl/map.cpp
 
-SRCS				= $(LIB_SRCS) $(TOOL_SRCS) $(HNSW_SRCS) $(MAIN_SRCS)
+SRCS				= $(LIB_SRCS) $(TOOL_SRCS) $(HNSW_SRCS) $(STL_SRCS) $(MAIN_SRCS)
 OBJS				= $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(basename $(SRCS))))
 DEPS				= $(OBJS:.o=.d)
 
@@ -60,5 +61,7 @@ $(BUILD_DIR)/$(TARGET).bin: $(BUILD_DIR)/$(TARGET).elf
 
 $(BUILD_DIR)/$(TARGET).dump: $(BUILD_DIR)/$(TARGET).elf
 	$(CROSS)objdump -d $< > $@
+
+$(BUILD_DIR)/stl/%.o: COMMON_FLAGS := $(filter-out -ffreestanding,$(COMMON_FLAGS))
 
 -include $(DEPS)
