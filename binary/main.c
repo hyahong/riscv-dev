@@ -20,6 +20,8 @@ void mapscan_demo (void);
 void sdmmapscan_demo (void);
 
 /* set */
+void set_demo (void);
+void sdmset_demo (void);
 
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
@@ -46,6 +48,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 	sdmmap_demo ();
 	//mapscan_demo ();
 	//sdmmapscan_demo ();
+	//set_demo ();
+	//sdmset_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
