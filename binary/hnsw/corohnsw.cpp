@@ -15,18 +15,6 @@ static Status statuses[query_count];
 
 static size_t next_query;
 
-static void
-prefetch_vector (uint32_t id)
-{
-	const uintptr_t begin = reinterpret_cast<uintptr_t> (graph.record (id) + graph.h.offsetData_);
-	const uintptr_t end = begin + graph.h.data_size_;
-
-	for (uintptr_t line = begin & ~(Coro::CACHE_LINE_SIZE - 1); line < end; line += Coro::CACHE_LINE_SIZE)
-	{
-		asm volatile ("prefetch.r 0(%0)" :: "r" (line));
-	}
-}
-
 static Coro::Task
 worker (unsigned int cid, void *)
 {

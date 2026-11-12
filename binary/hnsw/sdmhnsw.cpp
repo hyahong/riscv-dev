@@ -4,7 +4,7 @@
 
 using namespace hnsw;
 
-constexpr uint32_t coroutine_count = 2;
+constexpr uint32_t coroutine_count = 4;
 constexpr size_t K = 1;
 constexpr size_t EF = 100;
 

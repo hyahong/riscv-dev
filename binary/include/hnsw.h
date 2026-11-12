@@ -176,10 +176,23 @@ struct GraphView
 	distance (const int16_t *query, uint32_t id) const
 	{
 		const int16_t *vector = reinterpret_cast<const int16_t *> (record (id) + h.offsetData_);
-		int64_t dot = 0;
-		for (uint64_t j = 0; j < h.dim_; ++j)
-				dot += int64_t (query[j]) * vector[j];
-		return -dot;
+		const uint64_t bulk = h.dim_ & ~uint64_t(3);
+		int64_t a = 0, b = 0, c = 0, d = 0;
+		uint64_t j = 0;
+
+		for (; j < bulk; j += 4)
+		{
+			a += int64_t(query[j]) * vector[j];
+			b += int64_t(query[j + 1]) * vector[j + 1];
+			c += int64_t(query[j + 2]) * vector[j + 2];
+			d += int64_t(query[j + 3]) * vector[j + 3];
+		}
+		for (; j < h.dim_; ++j)
+		{
+			a += int64_t(query[j]) * vector[j];
+		}
+
+		return -((a + b) + (c + d));
 	}
 
 	bool
@@ -299,6 +312,19 @@ struct Result
 	int64_t distance; // smaller is better
 };
 
+inline void
+prefetch_vector (const GraphView &graph, uint32_t id)
+{
+	constexpr uintptr_t cache_line_bytes = 64;
+	const uintptr_t begin = reinterpret_cast<uintptr_t> (graph.record (id) + graph.h.offsetData_);
+	const uintptr_t end = begin + graph.h.data_size_;
+
+	for (uintptr_t line = begin & ~(cache_line_bytes - 1); line < end; line += cache_line_bytes)
+	{
+		asm volatile ("prefetch.r 0(%0)" :: "r" (line));
+	}
+}
+
 inline Status
 search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 		Workspace &work, Result *output = nullptr)
@@ -327,6 +353,7 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 
 	// 1. greedy descent through the sparse upper levels
 	uint32_t current = graph.h.enterpoint_node_;
+	prefetch_vector (graph, current);
 	int64_t current_distance = graph.distance (query, current);
 	for (int32_t level = graph.h.maxlevel_; level > 0; --level)
 	{
@@ -346,6 +373,7 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 				const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
 				if (id >= n)
 					return Status::InvalidGraph;
+				prefetch_vector (graph, id);
 				const int64_t distance = graph.distance (query, id);
 				if (distance < current_distance)
 				{
@@ -390,6 +418,7 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 
 			work.visited[id] = work.epoch;
 
+			prefetch_vector (graph, id);
 			const int64_t distance = graph.distance (query, id);
 			if (nearest.count < ef || distance < nearest.top ().distance)
 			{

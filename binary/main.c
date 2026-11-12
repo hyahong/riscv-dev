@@ -30,8 +30,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 	printk ("[%s:MAIN] hartid=%d, dtb=%x\n", RUN_ID, hartid, dtb);
 
 	//hnsw_demo ();
-	corohnsw_demo ();
-	//sdmhnsw_demo ();
+	//corohnsw_demo ();
+	sdmhnsw_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
