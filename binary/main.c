@@ -25,6 +25,10 @@ void sdmset_demo (void);
 void setscan_demo (void);
 void sdmsetscan_demo (void);
 
+/* list */
+void list_demo (void);
+void sdmlist_demo (void);
+
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
 {
@@ -54,6 +58,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 	//sdmset_demo ();
 	//setscan_demo ();
 	//sdmsetscan_demo ();
+	//list_demo ();
+	//sdmlist_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }

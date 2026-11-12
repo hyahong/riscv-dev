@@ -28,7 +28,7 @@ LIB_SRCS		= lib/uart.c lib/printk.c lib/syscalls.c lib/heap.c lib/new.cpp
 TOOL_SRCS		= tool/memory.c
 HNSW_SRCS		= hnsw/base.cpp hnsw/query.cpp hnsw/hnsw.cpp hnsw/corohnsw.cpp hnsw/sdmhnsw.cpp
 MAIN_SRCS		= start.S main.c
-STL_SRCS		= stl/map.cpp stl/set.cpp
+STL_SRCS		= stl/map.cpp stl/set.cpp stl/list.cpp
 
 SRCS				= $(LIB_SRCS) $(TOOL_SRCS) $(HNSW_SRCS) $(STL_SRCS) $(MAIN_SRCS)
 OBJS				= $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(basename $(SRCS))))
