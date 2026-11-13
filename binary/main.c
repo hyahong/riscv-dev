@@ -35,6 +35,10 @@ void sdmvector_demo (void);
 void vectorscan_demo (void);
 void sdmvectorscan_demo (void);
 
+/* priority_queue */
+void priority_queue_demo (void);
+void sdmpriority_queue_demo (void);
+
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
 {
@@ -70,6 +74,8 @@ _main (uint64_t hartid, uintptr_t dtb)
 	//sdmvector_demo ();
 	//vectorscan_demo ();
 	//sdmvectorscan_demo ();
+	//priority_queue_demo ();
+	//sdmpriority_queue_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
