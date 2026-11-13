@@ -8,7 +8,7 @@ constexpr uint32_t coroutine_count = 4;
 constexpr size_t K = 1;
 constexpr size_t EF = 100;
 
-alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][32];
+alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][SDM::FRAME_REGISTER_COUNT];
 alignas(16) static uint8_t stacks[coroutine_count][4096];
 
 static GraphView graph;

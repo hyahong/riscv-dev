@@ -3,7 +3,7 @@
 #include <printk.h>
 #include <bench.h>
 
-alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][32];
+alignas(64) static uint64_t frames[SDM::MAX_COROUTINE_COUNT + 1][SDM::FRAME_REGISTER_COUNT];
 alignas(16) static uint8_t stacks[coroutine_count][4096];
 
 static Work works[coroutine_count];

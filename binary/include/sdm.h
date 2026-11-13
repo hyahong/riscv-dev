@@ -10,6 +10,8 @@ class SDM
 
 		static constexpr uint32_t MAX_CORE_COUNT = 1;
 		static constexpr uint32_t MAX_COROUTINE_COUNT = 32;
+		static constexpr uint32_t FRAME_REGISTER_COUNT = 64;
+		static constexpr uint32_t FRAME_BYTES = FRAME_REGISTER_COUNT * sizeof (uint64_t);
 
 		class Core
 		{
@@ -61,8 +63,8 @@ class SDM
 					}
 
 					// clear
-					frame = static_cast<uint64_t *> (m_frame_ptr) + m_coroutine_count * 32;
-					for (i = 0; i < 32; ++i)
+					frame = static_cast<uint64_t *> (m_frame_ptr) + m_coroutine_count * FRAME_REGISTER_COUNT;
+					for (i = 0; i < FRAME_REGISTER_COUNT; ++i)
 					{
 						frame[i] = 0;
 					}
