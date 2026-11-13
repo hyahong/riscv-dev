@@ -107,6 +107,8 @@ worker (unsigned int cid, void *)
 				co_return;
 			}
 
+			prefetch_visited (work, list, 0, count, n);
+
 			for (uint32_t j = 0; j < count; ++j)
 			{
 				const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
@@ -123,6 +125,7 @@ worker (unsigned int cid, void *)
 				work.visited[id] = work.epoch;
 
 				prefetch_vector (graph, id);
+				prefetch_visited (work, list, j + 1, count, n);
 				co_await Coro::yield ();
 				const int64_t distance = graph.distance (query, id);
 

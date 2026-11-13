@@ -325,6 +325,20 @@ prefetch_vector (const GraphView &graph, uint32_t id)
 	}
 }
 
+inline void
+prefetch_visited (const Workspace &work, const uint8_t *list, uint32_t begin, uint32_t count, size_t n)
+{
+	constexpr static uint32_t visited_lookahead = 2;
+
+	for (uint32_t j = begin; j < count && j - begin < visited_lookahead; ++j)
+	{
+		const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
+
+		if (id < n)
+			asm volatile ("prefetch.r 0(%0)" :: "r" (&work.visited[id]));
+	}
+}
+
 inline Status
 search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k, size_t ef,
 		Workspace &work, Result *output = nullptr)
@@ -406,6 +420,8 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 		if (!graph.link_list (candidate.id, 0, list, count))
 				return Status::InvalidGraph;
 
+		prefetch_visited (work, list, 0, count, n);
+
 		for (uint32_t j = 0; j < count; ++j)
 		{
 			const uint32_t id = reinterpret_cast<const uint32_t *> (list + 4)[j];
@@ -419,6 +435,7 @@ search_knn (const int id, const GraphView &graph, const int16_t *query, size_t k
 			work.visited[id] = work.epoch;
 
 			prefetch_vector (graph, id);
+			prefetch_visited (work, list, j + 1, count, n);
 			const int64_t distance = graph.distance (query, id);
 			if (nearest.count < ef || distance < nearest.top ().distance)
 			{
