@@ -29,6 +29,12 @@ void sdmsetscan_demo (void);
 void list_demo (void);
 void sdmlist_demo (void);
 
+/* vector */
+void vector_demo (void);
+void sdmvector_demo (void);
+void vectorscan_demo (void);
+void sdmvectorscan_demo (void);
+
 void
 _trap (uint64_t cause, uint64_t pc, uint64_t value)
 {
@@ -60,6 +66,10 @@ _main (uint64_t hartid, uintptr_t dtb)
 	//sdmsetscan_demo ();
 	//list_demo ();
 	//sdmlist_demo ();
+	//vector_demo ();
+	//sdmvector_demo ();
+	//vectorscan_demo ();
+	//sdmvectorscan_demo ();
 
 	printk ("[%s:MAIN] WFI\n", RUN_ID);
 }
